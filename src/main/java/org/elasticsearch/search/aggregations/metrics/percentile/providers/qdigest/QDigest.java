@@ -3,16 +3,12 @@ package org.elasticsearch.search.aggregations.metrics.percentile.providers.qdige
 import it.unimi.dsi.fastutil.Hash;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import org.apache.lucene.util.CollectionUtil;
 import org.apache.lucene.util.RamUsageEstimator;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -352,7 +348,7 @@ public class QDigest implements IQuantileEstimator
             ranges.add(new long[]{rangeLeft(key), rangeRight(key), node2count.get(key)});
         }
 
-        Collections.sort(ranges, RANGES_COMPARATOR);
+        CollectionUtil.timSort(ranges, RANGES_COMPARATOR);
         return ranges;
     }
 
