@@ -1,8 +1,8 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.qdigest;
 
-import it.unimi.dsi.fastutil.Hash;
-import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import com.carrotsearch.hppc.LongArrayDeque;
+import com.carrotsearch.hppc.LongLongOpenHashMap;
+import com.carrotsearch.hppc.cursors.LongLongCursor;
 import org.apache.lucene.util.CollectionUtil;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -74,13 +74,13 @@ public class QDigestState {
         }
     };
 
-    private static final int MAP_INITIAL_SIZE = Hash.DEFAULT_INITIAL_SIZE;
-    private static final float MAP_LOAD_FACTOR = Hash.VERY_FAST_LOAD_FACTOR;
+    private static final int MAP_INITIAL_SIZE = 16;
+    private static final float MAP_LOAD_FACTOR = 0.5f;
 
     private long size;
     private long capacity = 1;
     private double compressionFactor;
-    private Long2LongOpenHashMap node2count = new Long2LongOpenHashMap(MAP_INITIAL_SIZE, MAP_LOAD_FACTOR);
+    private LongLongOpenHashMap node2count = new LongLongOpenHashMap(MAP_INITIAL_SIZE, MAP_LOAD_FACTOR);
 
     public QDigestState(double compressionFactor) {
         this.compressionFactor = compressionFactor;
@@ -168,7 +168,8 @@ public class QDigestState {
         QDigestState res = new QDigestState(a.compressionFactor);
         res.capacity = a.capacity;
         res.size = a.size + b.size;
-        for (long k : a.node2count.keySet()) {
+        for (LongLongCursor cursor : a.node2count) {
+            final long k = cursor.key;
             res.node2count.put(k, a.node2count.get(k));
         }
 
@@ -176,7 +177,8 @@ public class QDigestState {
             res.rebuildToCapacity(b.capacity);
         }
 
-        for (long k : b.node2count.keySet()) {
+        for (LongLongCursor cursor : b.node2count) {
+            final long k = cursor.key;
             res.node2count.put(k, b.get(k) + res.get(k));
         }
 
@@ -186,7 +188,7 @@ public class QDigestState {
     }
 
     private void rebuildToCapacity(long newCapacity) {
-        Long2LongOpenHashMap newNode2count = new Long2LongOpenHashMap(MAP_INITIAL_SIZE, MAP_LOAD_FACTOR);
+        LongLongOpenHashMap newNode2count = new LongLongOpenHashMap(MAP_INITIAL_SIZE, MAP_LOAD_FACTOR);
         // rebuild to newLogCapacity.
         // This means that our current tree becomes a leftmost subtree
         // of the new tree.
@@ -198,7 +200,12 @@ public class QDigestState {
         // This is easy to see if you draw it on paper.
         // Process the keys by "layers" in the original tree.
         long scaleR = newCapacity / capacity - 1;
-        Long[] keys = node2count.keySet().toArray(new Long[node2count.size()]);
+        final long[] keys = new long[node2count.size()];
+        int i = 0;
+        for (LongLongCursor cursor : node2count) {
+            final long k = cursor.key;
+            keys[i++] = k;
+        }
         Arrays.sort(keys);
         long scaleL = 1;
         for (long k : keys) {
@@ -214,8 +221,8 @@ public class QDigestState {
 
     private void compressFully() {
         // Restore property 2 at each node.
-        Long[] allNodes = node2count.keySet().toArray(new Long[node2count.size()]);
-        for (long node : allNodes) {
+        for (LongLongCursor cursor : node2count) {
+            final long node = cursor.key;
             compressDownward(node);
         }
     }
@@ -257,10 +264,10 @@ public class QDigestState {
     private void compressDownward(long seedNode) {
         double threshold = Math.floor(size / compressionFactor);
         // P2 check same as above but shorter and slower (and invoked rarely)
-        LongArrayFIFOQueue q = new LongArrayFIFOQueue();
-        q.enqueue(seedNode);
+        LongArrayDeque q = new LongArrayDeque();
+        q.addLast(seedNode);
         while (!q.isEmpty()) {
-            long node = q.dequeueLong();
+            long node = q.removeFirst();
             long atNode = get(node);
             long atSibling = get(sibling(node));
             if (atNode == 0 && atSibling == 0) {
@@ -275,8 +282,8 @@ public class QDigestState {
             node2count.remove(sibling(node));
             // Now P2 could have vanished at the node's and sibling's subtrees since they decreased.
             if (!isLeaf(node)) {
-                q.enqueue(leftChild(node));
-                q.enqueue(leftChild(sibling(node)));
+                q.addLast(leftChild(node));
+                q.addLast(leftChild(sibling(node)));
             }
         }
     }
@@ -303,7 +310,8 @@ public class QDigestState {
 
     public List<long[]> toAscRanges() {
         List<long[]> ranges = new ArrayList<long[]>();
-        for (long key : node2count.keySet()) {
+        for (LongLongCursor cursor : node2count) {
+            final long key = cursor.key;
             ranges.add(new long[]{rangeLeft(key), rangeRight(key), node2count.get(key)});
         }
 
@@ -323,7 +331,8 @@ public class QDigestState {
         out.writeLong(state.size);
         out.writeLong(state.capacity);
         out.writeInt(state.node2count.size());
-        for (long k : state.node2count.keySet()) {
+        for (LongLongCursor cursor : state.node2count) {
+            final long k = cursor.key;
             out.writeVLong(k);
             out.writeVLong(state.node2count.get(k));
         }
@@ -334,7 +343,7 @@ public class QDigestState {
         state.size = in.readLong();
         state.capacity = in.readLong();
         int count = in.readInt();
-        state.node2count = new Long2LongOpenHashMap(count, MAP_LOAD_FACTOR);
+        state.node2count = new LongLongOpenHashMap(count, MAP_LOAD_FACTOR);
         for (int i = 0; i < count; ++i) {
             long k = in.readVLong();
             long n = in.readVLong();
