@@ -32,6 +32,7 @@ import org.elasticsearch.search.aggregations.support.numeric.NumericValuesSource
 import org.elasticsearch.search.internal.SearchContext;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -101,7 +102,8 @@ public class PercentileParser implements Aggregator.Parser {
                         values.add(percent);
                     }
                     percents = values.toArray();
-
+                    // Some impls rely on the fact that percents are sorted
+                    Arrays.sort(percents);
                 }
             } else if (token == XContentParser.Token.START_OBJECT) {
                 if ("params".equals(currentFieldName)) {

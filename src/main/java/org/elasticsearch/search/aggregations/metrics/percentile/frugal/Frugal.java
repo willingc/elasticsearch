@@ -1,10 +1,12 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.frugal;
 
+import com.carrotsearch.hppc.DoubleArrayList;
 import jsr166y.ThreadLocalRandom;
 import org.apache.lucene.util.OpenBitSet;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.search.aggregations.metrics.percentile.InternalPercentiles;
 
 import java.io.IOException;
@@ -211,8 +213,7 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
     private class Merger implements InternalPercentiles.Estimator.Merger<Frugal> {
 
         private final int expectedMerges;
-        private double[] merging;
-        private int currentMerge;
+        private DoubleArrayList merging;
 
         private Merger(int expectedMerges) {
             this.expectedMerges = expectedMerges;
@@ -226,23 +227,35 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
             }
 
             if (merging == null) {
-                merging = new double[expectedMerges * percents.length];
+                merging = new DoubleArrayList(expectedMerges * percents.length);
             }
 
             for (int i = 0; i < percents.length; ++i) {
-                merging[(expectedMerges* i) + currentMerge] = frugal.estimate(i);
+                merging.add(frugal.estimate(i));
             }
-            currentMerge++;
+        }
+
+        private double weightedValue(DoubleArrayList list, double index) {
+            assert index <= list.size() - 1;
+            final int intIndex = (int) index;
+            final double d = index - intIndex;
+            if (d == 0) {
+                return list.get(intIndex);
+            } else {
+                return (1 - d) * list.get(intIndex) + d * list.get(intIndex + 1);
+            }
         }
 
         @Override
         public Frugal merge() {
-            if (currentMerge > 0) {
+            if (merging != null) {
                 if (estimates == null) {
                     estimates = new double[percents.length];
                 }
+                CollectionUtils.sort(merging);
+                final int numMerges = merging.size() / percents.length;
                 for (int i = 0; i < percents.length; ++i) {
-                    estimates[i] = QuickSelect.quickSelect(merging, i * expectedMerges, (i * expectedMerges) + currentMerge - 1, currentMerge / 2);
+                    estimates[i] = weightedValue(merging, numMerges * i + (percents[i] / 100 * (numMerges - 1)));
                 }
             }
             return Frugal.this;
