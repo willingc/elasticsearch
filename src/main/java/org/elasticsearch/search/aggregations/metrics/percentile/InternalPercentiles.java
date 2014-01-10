@@ -244,7 +244,9 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
 
         @Override
         public Percentiles.Percentile next() {
-            return new InnerPercentile(estimator.percents[i], estimator.estimate(i));
+            final Percentiles.Percentile next = new InnerPercentile(estimator.percents[i], estimator.estimate(i));
+            ++i;
+            return next;
         }
     }
 
