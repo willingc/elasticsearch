@@ -19,6 +19,7 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
 
     private final Random rand;
 
+    private double min = Double.POSITIVE_INFINITY, max = Double.NEGATIVE_INFINITY;
     public double[] estimates;  // Current estimate of percentile
     private int[] steps;        // Current step value for frugal-2u
     private OpenBitSet signs;   // Direction of last movement
@@ -71,8 +72,13 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
         if (estimates == null) {
             estimates = new double[percents.length];
             Arrays.fill(this.estimates, value);
+            min = value;
+            max = value;
             return;
         }
+
+        min = Math.min(value, min);
+        max = Math.max(value, max);
 
         final double randomValue = rand.nextDouble() * 100;
         for (int i = 0 ; i < percents.length; ++i) {
@@ -81,20 +87,18 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
     }
 
     private void offerTo(int index, double value, double randomValue) {
-        
         double percent = this.percents[index];
+
+        if (percent == 0 || percent == 100) {
+            // we calculate those separately
+            return;
+        }
 
         /**
          * Movements in the same direction are rewarded with a boost to step, and
          * a big change to estimate. Movement in opposite direction gets negative
          * step boost but still a small boost to estimate
-         *
-         * 100% percentile doesn't need fancy algo, just save largest
          */
-        if (percent == 100 && value > estimates[index]) {
-            estimates[index] = value;
-            return;
-        }
 
         if (value > estimates[index] && randomValue > (100.0d - percent)) {
             steps[index] += signs.get(index) ? 1 : -1;
@@ -143,7 +147,16 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
     }
 
     public double estimate(int index) {
-        return estimates != null ? estimates[index] : Double.NaN;
+        if (estimates == null) {
+            return Double.NaN;
+        }
+        if (percents[index] == 0) {
+            return min;
+        } else if (percents[index] == 100) {
+            return max;
+        } else {
+            return Math.max(Math.min(estimates[index], max), min);
+        }
     }
 
     @Override
@@ -162,6 +175,11 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
         this.percents = new double[in.readInt()];
         this.estimates = in.readBoolean() ? new double[this.percents.length] : null;
         this.steps = new int[this.percents.length];
+
+        if (estimates != null) {
+            min = in.readDouble();
+            max = in.readDouble();
+        }
 
         for (int i = 0 ; i < percents.length; ++i) {
             percents[i] = in.readDouble();
@@ -182,6 +200,10 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
     public void writeTo(StreamOutput out) throws IOException {
         out.writeInt(percents.length);
         out.writeBoolean(estimates != null);
+        if (estimates != null) {
+            out.writeDouble(min);
+            out.writeDouble(max);
+        }
         for (int i = 0 ; i < percents.length; ++i) {
             out.writeDouble(percents[i]);
             out.writeInt(steps[i]);
@@ -225,6 +247,9 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
             if (frugal.estimates == null) {
                 return;
             }
+
+            min = Math.min(min, frugal.min);
+            max = Math.max(max, frugal.max);
 
             if (merging == null) {
                 merging = new DoubleArrayList(expectedMerges * percents.length);

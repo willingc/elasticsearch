@@ -19,19 +19,21 @@
 
 package org.elasticsearch.search.aggregations.metrics;
 
+import com.google.common.collect.Lists;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
+import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.search.aggregations.AggregationBuilders.histogram;
 import static org.elasticsearch.search.aggregations.AggregationBuilders.percentiles;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.*;
 
 /**
  *
@@ -63,23 +65,13 @@ public class PercentilesTests extends AbstractNumericTests {
                 break;
             }
         }
+        Arrays.sort(percentiles);
         Loggers.getLogger(PercentilesTests.class).info("Using percentiles={}", Arrays.toString(percentiles));
         return percentiles;
     }
 
     private void assertConsistent(double[] pcts, Percentiles percentiles, long minValue, long maxValue) {
-        // TODO: check if any of these tests could pass with algos
-        // it looks like it wouldn't be possible with frugal
-
-        /*assertNotNull(percentiles);
         final List<Percentile> percentileList = Lists.newArrayList(percentiles);
-        CollectionUtil.introSort(percentileList, new Comparator<Percentile>() {
-            @Override
-            public int compare(Percentile o1, Percentile o2) {
-                return Double.compare(o1.getPercent(), o2.getPercent());
-            }
-        });
-        Arrays.sort(pcts);
         assertEquals(pcts.length, percentileList.size());
         for (int i = 0; i < pcts.length; ++i) {
             final Percentile percentile = percentileList.get(i);
@@ -90,7 +82,7 @@ public class PercentilesTests extends AbstractNumericTests {
 
         for (int i = 1; i < percentileList.size(); ++i) {
             assertThat(percentileList.get(i).getValue(), greaterThanOrEqualTo(percentileList.get(i - 1).getValue()));
-        }*/
+        }
     }
 
     @Test
