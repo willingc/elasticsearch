@@ -1,5 +1,6 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.frugal;
 
+import jsr166y.ThreadLocalRandom;
 import org.apache.lucene.util.OpenBitSet;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -25,7 +26,7 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
         // if we wanted to do it right... we'd need an "OpenRandom" class where we have access to the current seed
         // and the serialize the seed as well. In our context, it doesn't matter much as the rand is not used once
         // this commulate is transferred (the rand is no used in the reduce phase)
-        this.rand = new Random();
+        this.rand = ThreadLocalRandom.current();
     }
 
     /**
@@ -48,7 +49,7 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
         this.signs = new OpenBitSet(percents.length);
         this.signs.set(0, percents.length);
         Arrays.fill(this.steps, 1);
-        this.rand = new Random();
+        this.rand = ThreadLocalRandom.current();
     }
 
     @Override
@@ -71,12 +72,13 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
             return;
         }
 
+        final double randomValue = rand.nextDouble() * 100;
         for (int i = 0 ; i < percents.length; ++i) {
-            offerTo(i, value);
+            offerTo(i, value, randomValue);
         }
     }
 
-    private void offerTo(int index, double value) {
+    private void offerTo(int index, double value, double randomValue) {
         
         double percent = this.percents[index];
 
@@ -91,8 +93,6 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
             estimates[index] = value;
             return;
         }
-
-        final double randomValue = this.rand.nextDouble() * 100.0d;
 
         if (value > estimates[index] && randomValue > (100.0d - percent)) {
             steps[index] += signs.get(index) ? 1 : -1;

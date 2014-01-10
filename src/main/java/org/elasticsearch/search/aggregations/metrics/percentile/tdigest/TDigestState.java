@@ -22,6 +22,12 @@ package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
  * https://github.com/addthis/stream-lib/blob/master/src/main/java/com/clearspring/analytics/stream/quantile/TDigest.java
  */
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import jsr166y.ThreadLocalRandom;
+import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.common.io.stream.StreamOutput;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -29,11 +35,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.sun.jna.Structure;
-import org.elasticsearch.common.io.stream.StreamInput;
-import org.elasticsearch.common.io.stream.StreamOutput;
 
 
 /**
@@ -73,12 +74,8 @@ public class TDigestState {
      *                    accuracy.
      */
     public TDigestState(double compression) {
-        this(compression, new Random());
-    }
-
-    public TDigestState(double compression, Random random) {
         this.compression = compression;
-        gen = random;
+        gen = ThreadLocalRandom.current();
     }
 
     /**
@@ -184,7 +181,7 @@ public class TDigestState {
         Preconditions.checkArgument(subData.iterator().hasNext(), "Can't merge 0 digests");
         List<TDigestState> elements = Lists.newArrayList(subData);
         int n = Math.max(1, elements.size() / 4);
-        TDigestState r = new TDigestState(compression, elements.get(0).gen);
+        TDigestState r = new TDigestState(compression);
         if (elements.get(0).recordAllData) {
             r.recordAllData();
         }
@@ -203,7 +200,7 @@ public class TDigestState {
     }
 
     private void compress(GroupTree other) {
-        TDigestState reduced = new TDigestState(compression, gen);
+        TDigestState reduced = new TDigestState(compression);
         if (recordAllData) {
             reduced.recordAllData();
         }

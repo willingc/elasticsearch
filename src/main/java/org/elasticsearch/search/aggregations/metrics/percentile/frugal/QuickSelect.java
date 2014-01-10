@@ -1,17 +1,19 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.frugal;
 
 
+import jsr166y.ThreadLocalRandom;
+
 import java.util.Random;
 
 public class QuickSelect {
-
-    private static final Random rand = new Random();
 
     public static double quickSelect(double[] list, int left, int right, int k) {
 
         if (left == right) {
             return list[left];
         }
+
+        final Random rand = ThreadLocalRandom.current();
 
         while (true) {
             int pivot = left + rand.nextInt(right - left + 1);
