@@ -23,20 +23,29 @@ import com.carrotsearch.hppc.DoubleArrayList;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.mapper.FieldMapper;
+import org.elasticsearch.search.SearchParseException;
+import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
-import org.elasticsearch.search.aggregations.metrics.ValuesSourceMetricsAggregatorParser;
 import org.elasticsearch.search.aggregations.support.FieldContext;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
 import org.elasticsearch.search.aggregations.support.numeric.NumericValuesSource;
 import org.elasticsearch.search.internal.SearchContext;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  *
  */
-public class PercentileParser extends ValuesSourceMetricsAggregatorParser<InternalPercentile> {
+public class PercentileParser implements Aggregator.Parser {
+
+    private final static double[] DEFAULT_PERCENTS = new double[] { 1, 5, 25, 50, 75, 95, 99 };
+
+    @Override
+    public String type() {
+        return InternalPercentiles.TYPE.name();
+    }
 
     /**
      * We must override the parse method because we need to allow custom parameters
@@ -50,10 +59,12 @@ public class PercentileParser extends ValuesSourceMetricsAggregatorParser<Intern
         String field = null;
         String script = null;
         String scriptLang = null;
-        InternalPercentile.EXECUTION_HINT execution_hint = InternalPercentile.EXECUTION_HINT.TDIGEST;
-        double[] percentiles = null;
+        InternalExecutionHint executionHint = InternalExecutionHint.TDIGEST;
+        double[] percents = DEFAULT_PERCENTS;
         Map<String, Object> scriptParams = null;
         boolean assumeSorted = false;
+        boolean keyed = true;
+        Map<String, Object> settings = null;
 
         XContentParser.Token token;
         String currentFieldName = null;
@@ -68,24 +79,28 @@ public class PercentileParser extends ValuesSourceMetricsAggregatorParser<Intern
                 } else if ("lang".equals(currentFieldName)) {
                     scriptLang = parser.text();
                 } else if ("execution_hint".equals(currentFieldName)) {
-
-                    if ("tdigest".equals(parser.text())) {
-                        execution_hint = InternalPercentile.EXECUTION_HINT.TDIGEST;
-                    } else if ("qdigest".equals(parser.text())) {
-                        execution_hint = InternalPercentile.EXECUTION_HINT.QDIGEST;
-                    } else if ("frugal".equals(parser.text())) {
-                        execution_hint = InternalPercentile.EXECUTION_HINT.FRUGAL;
+                    executionHint = InternalExecutionHint.resolve(parser.text());
+                    if (executionHint == null) {
+                        throw new SearchParseException(context, "Unknown percentile execution_hint [" + parser.text() + "]");
                     }
+                } else {
+                    if (settings == null) {
+                        settings = new HashMap<String, Object>();
+                    }
+                    settings.put(currentFieldName, parser.text());
                 }
             } else if (token == XContentParser.Token.START_ARRAY) {
-                if ("percentiles".equals(currentFieldName)) {
-
-                    // @TODO better way to do this?
-                    DoubleArrayList tPercentiles = new DoubleArrayList(5);
+                if ("percents".equals(currentFieldName)) {
+                    DoubleArrayList values = new DoubleArrayList(10);
                     while ((token = parser.nextToken()) != XContentParser.Token.END_ARRAY) {
-                        tPercentiles.add(parser.doubleValue());
+                        double percent = parser.doubleValue();
+                        if (percent < 0 || percent > 100) {
+                            throw new SearchParseException(context, "the percents in the percentiles aggregation [" +
+                                    aggregationName + "] must be in the [0, 100] range");
+                        }
+                        values.add(percent);
                     }
-                    percentiles = tPercentiles.toArray();
+                    percents = values.toArray();
 
                 }
             } else if (token == XContentParser.Token.START_OBJECT) {
@@ -95,66 +110,43 @@ public class PercentileParser extends ValuesSourceMetricsAggregatorParser<Intern
             } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
                 if ("script_values_sorted".equals(currentFieldName)) {
                     assumeSorted = parser.booleanValue();
+                } if ("keyed".equals(currentFieldName)) {
+                    keyed = parser.booleanValue();
+                } else {
+                    if (settings == null) {
+                        settings = new HashMap<String, Object>();
+                    }
+                    settings.put(currentFieldName, parser.booleanValue());
                 }
+            } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                if (settings == null) {
+                    settings = new HashMap<String, Object>();
+                }
+                settings.put(currentFieldName, parser.numberValue());
             }
-        }
-
-        if (percentiles == null) {
-            percentiles = getDefaultPercentiles();
         }
 
         if (script != null) {
             config.script(context.scriptService().search(context.lookup(), scriptLang, script, scriptParams));
         }
 
-        if (!assumeSorted && requiresSortedValues()) {
+        if (!assumeSorted) {
             config.ensureSorted(true);
         }
 
         if (field == null) {
-            return createFactoryWithCustom(aggregationName, config, execution_hint, percentiles);
+            return new PercentileAggregator.Factory(aggregationName, config, executionHint.estimatorFactory(settings), percents, keyed);
         }
 
         FieldMapper<?> mapper = context.smartNameFieldMapper(field);
         if (mapper == null) {
             config.unmapped(true);
-            return createFactoryWithCustom(aggregationName, config, execution_hint, percentiles);
+            return new PercentileAggregator.Factory(aggregationName, config, executionHint.estimatorFactory(settings), percents, keyed);
         }
 
         IndexFieldData<?> indexFieldData = context.fieldData().getForField(mapper);
         config.fieldContext(new FieldContext(field, indexFieldData));
-        return createFactoryWithCustom(aggregationName, config, execution_hint, percentiles);
-    }
-
-
-    @Override
-    public String type() {
-        return InternalPercentile.TYPE.name();
-    }
-
-    /**
-     * This is likely never used, but provided to satisfy the abstract parent.  Sets default
-     * algorithm to TDigest
-     */
-    @Override
-    protected AggregatorFactory createFactory(String aggregationName, ValuesSourceConfig<NumericValuesSource> config) {
-        double[] percentiles = getDefaultPercentiles();
-        return createFactoryWithCustom(aggregationName, config, InternalPercentile.EXECUTION_HINT.TDIGEST, percentiles);
-    }
-
-
-    protected AggregatorFactory createFactoryWithCustom(
-            String aggregationName,
-            ValuesSourceConfig<NumericValuesSource> config,
-            InternalPercentile.EXECUTION_HINT execution_hint,
-            double[] intervals
-    ) {
-        return new PercentileAggregator.Factory(aggregationName, type(), config, execution_hint, intervals);
-    }
-
-
-    private double[] getDefaultPercentiles() {
-        return new double[] {1, 5, 25, 50, 75, 95, 99};
+        return new PercentileAggregator.Factory(aggregationName, config, executionHint.estimatorFactory(settings), percents, keyed);
     }
 
 }

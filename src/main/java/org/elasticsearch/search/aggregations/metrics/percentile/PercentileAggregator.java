@@ -25,10 +25,6 @@ import org.elasticsearch.index.fielddata.DoubleValues;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.InternalAggregation;
-import org.elasticsearch.search.aggregations.metrics.percentile.providers.FrugalProvider;
-import org.elasticsearch.search.aggregations.metrics.percentile.providers.PercentileProvider;
-import org.elasticsearch.search.aggregations.metrics.percentile.providers.QDigestProvider;
-import org.elasticsearch.search.aggregations.metrics.percentile.providers.TDigestProvider;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValueSourceAggregatorFactory;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
@@ -43,19 +39,25 @@ public class PercentileAggregator extends Aggregator {
 
     private final NumericValuesSource valuesSource;
 
-    private ObjectArray<PercentileProvider> percentiles;
-    private PercentileProvider.Factory percentileFactory;
+    private ObjectArray<InternalPercentiles.Estimator> estimators;
+    private final InternalPercentiles.Estimator.Factory percentileFactory;
+    private final double[] percents;
+    private final boolean keyed;
 
 
-    public PercentileAggregator(String name, long estimatedBucketsCount, NumericValuesSource valuesSource, AggregationContext context, Aggregator parent, PercentileProvider.Factory percentileFactory) {
+    public PercentileAggregator(String name, long estimatedBucketsCount, NumericValuesSource valuesSource, AggregationContext context,
+                                Aggregator parent, InternalPercentiles.Estimator.Factory percentileFactory, double[] percents, boolean keyed) {
+
         super(name, BucketAggregationMode.MULTI_BUCKETS, AggregatorFactories.EMPTY, estimatedBucketsCount, context, parent);
         this.valuesSource = valuesSource;
         this.percentileFactory = percentileFactory;
+        this.percents = percents;
+        this.keyed = keyed;
         if (valuesSource != null) {
             final long initialSize = estimatedBucketsCount < 2 ? 1 : estimatedBucketsCount;
-            percentiles = BigArrays.newObjectArray(initialSize);
+            estimators = BigArrays.newObjectArray(initialSize);
             for (long i = 0; i < initialSize; ++i) {
-                percentiles.set(i, this.percentileFactory.create());
+                estimators.set(i, this.percentileFactory.create(percents));
             }
         }
     }
@@ -74,62 +76,59 @@ public class PercentileAggregator extends Aggregator {
             return;
         }
 
-        if (owningBucketOrdinal >= percentiles.size()) {
-            long from = percentiles.size();
-            percentiles = BigArrays.grow(percentiles, owningBucketOrdinal + 1);
-            for (long i = from; i < percentiles.size(); ++i) {
-                percentiles.set(i, this.percentileFactory.create());
+        if (owningBucketOrdinal >= estimators.size()) {
+            long from = estimators.size();
+            estimators = BigArrays.grow(estimators, owningBucketOrdinal + 1);
+            for (long i = from; i < estimators.size(); ++i) {
+                estimators.set(i, this.percentileFactory.create(percents));
             }
         }
 
         final int valueCount = values.setDocument(doc);
-        PercentileProvider percentile = percentiles.get(owningBucketOrdinal);
+        InternalPercentiles.Estimator percentile = estimators.get(owningBucketOrdinal);
         for (int i = 0; i < valueCount; i++) {
             percentile.offer(values.nextValue());
         }
 
-        percentiles.set(owningBucketOrdinal, percentile);
+        estimators.set(owningBucketOrdinal, percentile);
     }
 
     @Override
     public InternalAggregation buildAggregation(long owningBucketOrdinal) {
-        if (valuesSource == null || owningBucketOrdinal >= percentiles.size()) {
-            return new InternalPercentile(name, percentileFactory.create());
+        if (valuesSource == null || owningBucketOrdinal >= estimators.size()) {
+            return buildEmptyAggregation();
         }
-        return new InternalPercentile(name, percentiles.get(owningBucketOrdinal));
+        return new InternalPercentiles(name, estimators.get(owningBucketOrdinal), keyed);
     }
 
     @Override
     public InternalAggregation buildEmptyAggregation() {
-        return new InternalPercentile(name, percentileFactory.create());
+        return new InternalPercentiles(name, percentileFactory.create(percents), keyed);
     }
+
 
     public static class Factory extends ValueSourceAggregatorFactory.LeafOnly<NumericValuesSource> {
 
-        private final PercentileProvider.Factory percentileFactory;
+        private final InternalPercentiles.Estimator.Factory estimatorFactory;
+        private final double[] percents;
+        private final boolean keyed;
 
-        public Factory(String name, String type, ValuesSourceConfig<NumericValuesSource> valuesSourceConfig, InternalPercentile.EXECUTION_HINT execution_hint, double[] percentiles) {
-            super(name, type, valuesSourceConfig);
-
-            if (execution_hint == InternalPercentile.EXECUTION_HINT.QDIGEST) {
-                this.percentileFactory = new QDigestProvider.Factory(percentiles);
-            } else if (execution_hint == InternalPercentile.EXECUTION_HINT.FRUGAL) {
-                this.percentileFactory = new FrugalProvider.Factory(percentiles);
-            } else if (execution_hint == InternalPercentile.EXECUTION_HINT.TDIGEST) {
-                this.percentileFactory = new TDigestProvider.Factory(percentiles);
-            } else {
-                this.percentileFactory = new TDigestProvider.Factory(percentiles);
-            }
+        public Factory(String name, ValuesSourceConfig<NumericValuesSource> valuesSourceConfig,
+                       InternalPercentiles.Estimator.Factory estimatorFactory, double[] percents, boolean keyed) {
+            super(name, InternalPercentiles.TYPE.name(), valuesSourceConfig);
+            this.estimatorFactory = estimatorFactory;
+            this.percents = percents;
+            this.keyed = keyed;
         }
 
         @Override
         protected Aggregator createUnmapped(AggregationContext aggregationContext, Aggregator parent) {
-            return new PercentileAggregator(name, 0, null, aggregationContext, parent, percentileFactory);
+            return new PercentileAggregator(name, 0, null, aggregationContext, parent, estimatorFactory, percents, keyed);
         }
 
         @Override
         protected Aggregator create(NumericValuesSource valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
-            return new PercentileAggregator(name, expectedBucketsCount, valuesSource, aggregationContext, parent, percentileFactory);
+            return new PercentileAggregator(name, expectedBucketsCount, valuesSource, aggregationContext, parent, estimatorFactory, percents, keyed);
         }
     }
 

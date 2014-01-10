@@ -1,4 +1,4 @@
-package org.elasticsearch.search.aggregations.metrics.percentile.providers.tdigest;
+package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -22,6 +22,7 @@ package org.elasticsearch.search.aggregations.metrics.percentile.providers.tdige
  * https://github.com/addthis/stream-lib/blob/master/src/main/java/com/clearspring/analytics/stream/quantile/TDigest.java
  */
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Iterator;
@@ -30,6 +31,9 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.sun.jna.Structure;
+import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.common.io.stream.StreamOutput;
 
 
 /**
@@ -51,7 +55,8 @@ import com.google.common.collect.Lists;
  * <p/>
  * g) easy to adapt for use with map-reduce
  */
-public class TDigest {
+public class TDigestState {
+
     private Random gen;
 
     private double compression = 100;
@@ -67,11 +72,11 @@ public class TDigest {
      *                    quantiles.  Conversely, you should expect to track about 5 N centroids for this
      *                    accuracy.
      */
-    public TDigest(double compression) {
+    public TDigestState(double compression) {
         this(compression, new Random());
     }
 
-    public TDigest(double compression, Random random) {
+    public TDigestState(double compression, Random random) {
         this.compression = compression;
         gen = random;
     }
@@ -166,7 +171,7 @@ public class TDigest {
         }
     }
 
-    public void add(TDigest other) {
+    public void add(TDigestState other) {
         List<Group> tmp = Lists.newArrayList(other.summary);
 
         Collections.shuffle(tmp, gen);
@@ -175,11 +180,11 @@ public class TDigest {
         }
     }
 
-    public static TDigest merge(double compression, Iterable<TDigest> subData) {
+    public static TDigestState merge(double compression, Iterable<TDigestState> subData) {
         Preconditions.checkArgument(subData.iterator().hasNext(), "Can't merge 0 digests");
-        List<TDigest> elements = Lists.newArrayList(subData);
+        List<TDigestState> elements = Lists.newArrayList(subData);
         int n = Math.max(1, elements.size() / 4);
-        TDigest r = new TDigest(compression, elements.get(0).gen);
+        TDigestState r = new TDigestState(compression, elements.get(0).gen);
         if (elements.get(0).recordAllData) {
             r.recordAllData();
         }
@@ -198,7 +203,7 @@ public class TDigest {
     }
 
     private void compress(GroupTree other) {
-        TDigest reduced = new TDigest(compression, gen);
+        TDigestState reduced = new TDigestState(compression, gen);
         if (recordAllData) {
             reduced.recordAllData();
         }
@@ -343,7 +348,7 @@ public class TDigest {
     /**
      * Sets up so that all centroids will record all data assigned to them.  For testing only, really.
      */
-    public TDigest recordAllData() {
+    public TDigestState recordAllData() {
         recordAllData = true;
         return this;
     }
@@ -433,11 +438,11 @@ public class TDigest {
      *
      * @return The new histogram structure
      */
-    public static TDigest fromBytes(ByteBuffer buf) {
+    public static TDigestState fromBytes(ByteBuffer buf) {
         int encoding = buf.getInt();
         if (encoding == VERBOSE_ENCODING) {
             double compression = buf.getDouble();
-            TDigest r = new TDigest(compression);
+            TDigestState r = new TDigestState(compression);
             int n = buf.getInt();
             double[] means = new double[n];
             for (int i = 0; i < n; i++) {
@@ -449,7 +454,7 @@ public class TDigest {
             return r;
         } else if (encoding == SMALL_ENCODING) {
             double compression = buf.getDouble();
-            TDigest r = new TDigest(compression);
+            TDigestState r = new TDigestState(compression);
             int n = buf.getInt();
             double[] means = new double[n];
             double x = 0;
@@ -480,8 +485,8 @@ public class TDigest {
     public static class Group implements Comparable<Group> {
         private static final AtomicInteger uniqueCount = new AtomicInteger(1);
 
-        private double centroid = 0;
-        private int count = 0;
+        double centroid = 0;
+        int count = 0;
         private int id;
 
         private List<Double> actualData = null;
@@ -578,6 +583,31 @@ public class TDigest {
             count += w;
             centroid += w * (x - centroid) / count;
         }
+    }
+
+    //===== elastic search serialization ======//
+
+    public static void write(TDigestState state, StreamOutput out) throws IOException {
+        out.writeDouble(state.compression);
+        out.writeInt(state.summary.size);
+        if (state.summary.size > 0) {
+            // the iterator of the GroupTree is not empty when the tree is empty...
+            // and returns a null first value :/
+            for (Group group : state.summary) {
+                out.writeDouble(group.centroid);
+                out.writeInt(group.count);
+            }
+        }
+    }
+
+    public static TDigestState read(StreamInput in) throws IOException {
+        double compression = in.readDouble();
+        TDigestState state = new TDigestState(compression);
+        int n = in.readInt();
+        for (int i = 0; i < n; i++) {
+            state.add(in.readDouble(), in.readInt());
+        }
+        return state;
     }
 
 }

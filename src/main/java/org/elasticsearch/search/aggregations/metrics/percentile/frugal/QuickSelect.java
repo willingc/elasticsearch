@@ -1,4 +1,4 @@
-package org.elasticsearch.search.aggregations.metrics.percentile.providers.frugal;
+package org.elasticsearch.search.aggregations.metrics.percentile.frugal;
 
 
 import java.util.Random;

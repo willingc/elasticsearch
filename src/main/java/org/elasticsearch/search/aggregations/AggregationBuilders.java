@@ -123,7 +123,7 @@ public class AggregationBuilders {
         return new TermsBuilder(name);
     }
 
-    public static PercentileBuilder percentile(String name) {
+    public static PercentileBuilder percentiles(String name) {
         return new PercentileBuilder(name);
     }
 }

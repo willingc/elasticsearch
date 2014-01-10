@@ -1,12 +1,14 @@
-package org.elasticsearch.search.aggregations.metrics.percentile.providers.qdigest;
+package org.elasticsearch.search.aggregations.metrics.percentile.qdigest;
 
 import it.unimi.dsi.fastutil.Hash;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import org.apache.lucene.util.CollectionUtil;
 import org.apache.lucene.util.RamUsageEstimator;
+import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.common.io.stream.StreamOutput;
 
-import java.io.*;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -26,7 +28,7 @@ import java.util.List;
  * and log(sigma) is ceiling of binary log of the largest value inserted,
  * i.e. height of the tree.
  * <p/>
- * Two Q-Digests can be joined (see {@link #unionOf(QDigest, QDigest)}).
+ * Two Q-Digests can be joined (see {@link #unionOf(QDigestState, QDigestState)}).
  * <p/>
  * Source:
  * N.Shrivastava, C.Buragohain, D.Agrawal
@@ -50,8 +52,8 @@ import java.util.List;
  * <p/>
  * So we can say that we preserve the paper's accuracy and memory consumption claims.
  */
-public class QDigest implements IQuantileEstimator
-{
+public class QDigestState {
+
     private static final Comparator<long[]> RANGES_COMPARATOR = new Comparator<long[]>() {
         @Override
         public int compare(long[] ra, long[] rb) {
@@ -80,79 +82,62 @@ public class QDigest implements IQuantileEstimator
     private double compressionFactor;
     private Long2LongOpenHashMap node2count = new Long2LongOpenHashMap(MAP_INITIAL_SIZE, MAP_LOAD_FACTOR);
 
-    public QDigest(double compressionFactor)
-    {
+    public QDigestState(double compressionFactor) {
         this.compressionFactor = compressionFactor;
     }
 
-    private long value2leaf(long x)
-    {
+    private long value2leaf(long x) {
         return capacity + x;
     }
 
-    private long leaf2value(long id)
-    {
+    private long leaf2value(long id) {
         return id - capacity;
     }
 
-    private boolean isRoot(long id)
-    {
+    private boolean isRoot(long id) {
         return id == 1;
     }
 
-    private boolean isLeaf(long id)
-    {
+    private boolean isLeaf(long id) {
         return id >= capacity;
     }
 
-    private long sibling(long id)
-    {
+    private long sibling(long id) {
         return (id % 2 == 0) ? (id + 1) : (id - 1);
     }
 
-    private long parent(long id)
-    {
+    private long parent(long id) {
         return id / 2;
     }
 
-    private long leftChild(long id)
-    {
+    private long leftChild(long id) {
         return 2 * id;
     }
 
-    private long rightChild(long id)
-    {
+    private long rightChild(long id) {
         return 2 * id + 1;
     }
 
-    private long rangeLeft(long id)
-    {
-        while (!isLeaf(id))
-        {
+    private long rangeLeft(long id) {
+        while (!isLeaf(id)) {
             id = leftChild(id);
         }
         return leaf2value(id);
     }
 
-    private long rangeRight(long id)
-    {
-        while (!isLeaf(id))
-        {
+    private long rangeRight(long id) {
+        while (!isLeaf(id)) {
             id = rightChild(id);
         }
         return leaf2value(id);
     }
 
-    @Override
-    public void offer(long value)
-    {
-        if (value < 0 || value > Long.MAX_VALUE/2)
-        {
-            throw new IllegalArgumentException("Can only accept values in the range 0.." + Long.MAX_VALUE/2 + ", got " + value);
+    public void offer(long value) {
+        if (value < 0 || value > Long.MAX_VALUE / 2) {
+            throw new IllegalArgumentException("Can only accept values in the range 0.." + Long.MAX_VALUE / 2 + ", got " + value);
         }
         // Rebuild if the value is too large for the current tree height
-        if (value >= capacity)
-        {
+        if (value >= capacity) {
             rebuildToCapacity(Long.highestOneBit(value) << 1);
         }
 
@@ -164,41 +149,34 @@ public class QDigest implements IQuantileEstimator
         // This is one sensible strategy which both is fast and keeps
         // the tree reasonably small (within the theoretical bound of 3k nodes)
         compressUpward(leaf);
-        if (node2count.size() > 3 * compressionFactor)
-        {
+        if (node2count.size() > 3 * compressionFactor) {
             compressFully();
         }
     }
 
-    public static QDigest unionOf(QDigest a, QDigest b)
-    {
-        if (a.compressionFactor != b.compressionFactor)
-        {
+    public static QDigestState unionOf(QDigestState a, QDigestState b) {
+        if (a.compressionFactor != b.compressionFactor) {
             throw new IllegalArgumentException(
                     "Compression factors must be the same: " +
                             "left is " + a.compressionFactor + ", " +
                             "right is " + b.compressionFactor);
         }
-        if (a.capacity > b.capacity)
-        {
+        if (a.capacity > b.capacity) {
             return unionOf(b, a);
         }
 
-        QDigest res = new QDigest(a.compressionFactor);
+        QDigestState res = new QDigestState(a.compressionFactor);
         res.capacity = a.capacity;
         res.size = a.size + b.size;
-        for (long k : a.node2count.keySet())
-        {
+        for (long k : a.node2count.keySet()) {
             res.node2count.put(k, a.node2count.get(k));
         }
 
-        if (b.capacity > res.capacity)
-        {
+        if (b.capacity > res.capacity) {
             res.rebuildToCapacity(b.capacity);
         }
 
-        for (long k : b.node2count.keySet())
-        {
+        for (long k : b.node2count.keySet()) {
             res.node2count.put(k, b.get(k) + res.get(k));
         }
 
@@ -207,8 +185,7 @@ public class QDigest implements IQuantileEstimator
         return res;
     }
 
-    private void rebuildToCapacity(long newCapacity)
-    {
+    private void rebuildToCapacity(long newCapacity) {
         Long2LongOpenHashMap newNode2count = new Long2LongOpenHashMap(MAP_INITIAL_SIZE, MAP_LOAD_FACTOR);
         // rebuild to newLogCapacity.
         // This means that our current tree becomes a leftmost subtree
@@ -224,10 +201,8 @@ public class QDigest implements IQuantileEstimator
         Long[] keys = node2count.keySet().toArray(new Long[node2count.size()]);
         Arrays.sort(keys);
         long scaleL = 1;
-        for (long k : keys)
-        {
-            while (scaleL <= k / 2)
-            {
+        for (long k : keys) {
+            while (scaleL <= k / 2) {
                 scaleL <<= 1;
             }
             newNode2count.put(k + scaleL * scaleR, node2count.get(k));
@@ -237,12 +212,10 @@ public class QDigest implements IQuantileEstimator
         compressFully();
     }
 
-    private void compressFully()
-    {
+    private void compressFully() {
         // Restore property 2 at each node.
         Long[] allNodes = node2count.keySet().toArray(new Long[node2count.size()]);
-        for (long node : allNodes)
-        {
+        for (long node : allNodes) {
             compressDownward(node);
         }
     }
@@ -252,31 +225,25 @@ public class QDigest implements IQuantileEstimator
      * at some nodes sideways as a result of this. We'll fix that later
      * in compressFully when needed.
      */
-    private void compressUpward(long node)
-    {
+    private void compressUpward(long node) {
         double threshold = Math.floor(size / compressionFactor);
         long atNode = get(node);
-        while (!isRoot(node))
-        {
-            if (atNode > threshold)
-            {
+        while (!isRoot(node)) {
+            if (atNode > threshold) {
                 break;
             }
             long atSibling = get(sibling(node));
-            if (atNode + atSibling > threshold)
-            {
+            if (atNode + atSibling > threshold) {
                 break;
             }
             long atParent = get(parent(node));
-            if (atNode + atSibling + atParent > threshold)
-            {
+            if (atNode + atSibling + atParent > threshold) {
                 break;
             }
 
             node2count.addTo(parent(node), atNode + atSibling);
             node2count.remove(node);
-            if (atSibling > 0)
-            {
+            if (atSibling > 0) {
                 node2count.remove(sibling(node));
             }
             node = parent(node);
@@ -287,64 +254,56 @@ public class QDigest implements IQuantileEstimator
     /**
      * Restore P2 at seedNode and guarantee that no new violations of P2 appeared.
      */
-    private void compressDownward(long seedNode)
-    {
+    private void compressDownward(long seedNode) {
         double threshold = Math.floor(size / compressionFactor);
         // P2 check same as above but shorter and slower (and invoked rarely)
         LongArrayFIFOQueue q = new LongArrayFIFOQueue();
         q.enqueue(seedNode);
-        while (!q.isEmpty())
-        {
+        while (!q.isEmpty()) {
             long node = q.dequeueLong();
             long atNode = get(node);
             long atSibling = get(sibling(node));
-            if (atNode == 0 && atSibling == 0)
-            {
+            if (atNode == 0 && atSibling == 0) {
                 continue;
             }
             long atParent = get(parent(node));
-            if (atParent + atNode + atSibling > threshold)
-            {
+            if (atParent + atNode + atSibling > threshold) {
                 continue;
             }
             node2count.addTo(parent(node), atNode + atSibling);
             node2count.remove(node);
             node2count.remove(sibling(node));
             // Now P2 could have vanished at the node's and sibling's subtrees since they decreased.
-            if (!isLeaf(node))
-            {
+            if (!isLeaf(node)) {
                 q.enqueue(leftChild(node));
                 q.enqueue(leftChild(sibling(node)));
             }
         }
     }
 
-    private long get(long node)
-    {
+    private long get(long node) {
         return node2count.get(node);
     }
 
-    @Override
-    public long getQuantile(double q)
-    {
+    public long getQuantile(double q) {
         List<long[]> ranges = toAscRanges();
         long s = 0;
-        for (long[] r : ranges)
-        {
+        for (long[] r : ranges) {
             s += r[2];
-            if (s > q * size)
-            {
+            if (s > q * size) {
                 return r[1];
             }
         }
         return ranges.get(ranges.size() - 1)[1];
     }
 
-    public List<long[]> toAscRanges()
-    {
+    public boolean isEmpty() {
+        return node2count.isEmpty();
+    }
+
+    public List<long[]> toAscRanges() {
         List<long[]> ranges = new ArrayList<long[]>();
-        for (long key : node2count.keySet())
-        {
+        for (long key : node2count.keySet()) {
             ranges.add(new long[]{rangeLeft(key), rangeRight(key), node2count.get(key)});
         }
 
@@ -352,60 +311,36 @@ public class QDigest implements IQuantileEstimator
         return ranges;
     }
 
-    public static byte[] serialize(QDigest d)
-    {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        DataOutputStream s = new DataOutputStream(bos);
-        try
-        {
-            s.writeLong(d.size);
-            s.writeDouble(d.compressionFactor);
-            s.writeLong(d.capacity);
-            s.writeInt(d.node2count.size());
-            for (long k : d.node2count.keySet())
-            {
-                s.writeLong(k);
-                s.writeLong(d.node2count.get(k));
-            }
-            return bos.toByteArray();
-        }
-        catch (IOException e)
-        {
-            // Should never happen
-            throw new RuntimeException(e);
+    public long ramBytesUsed() {
+        return RamUsageEstimator.sizeOf(node2count) + 8 + 8 + 8;
+    }
+
+
+    //======= elasticsearch serialization ====//
+
+    public static void write(QDigestState state, StreamOutput out) throws IOException {
+        out.writeDouble(state.compressionFactor);
+        out.writeLong(state.size);
+        out.writeLong(state.capacity);
+        out.writeInt(state.node2count.size());
+        for (long k : state.node2count.keySet()) {
+            out.writeVLong(k);
+            out.writeVLong(state.node2count.get(k));
         }
     }
 
-    public static QDigest deserialize(byte[] b)
-    {
-        ByteArrayInputStream bis = new ByteArrayInputStream(b);
-        DataInputStream s = new DataInputStream(bis);
-        try
-        {
-            long size = s.readLong();
-            double compressionFactor = s.readLong();
-            long capacity = s.readLong();
-            int count = s.readInt();
-            QDigest d = new QDigest(compressionFactor);
-            d.size = size;
-            d.capacity = capacity;
-            for (int i = 0; i < count; ++i)
-            {
-                long k = s.readLong();
-                long n = s.readLong();
-                d.node2count.put(k, n);
-            }
-            return d;
+    public static QDigestState read(StreamInput in) throws IOException {
+        QDigestState state = new QDigestState(in.readDouble());
+        state.size = in.readLong();
+        state.capacity = in.readLong();
+        int count = in.readInt();
+        state.node2count = new Long2LongOpenHashMap(count, MAP_LOAD_FACTOR);
+        for (int i = 0; i < count; ++i) {
+            long k = in.readVLong();
+            long n = in.readVLong();
+            state.node2count.put(k, n);
         }
-        catch (IOException e)
-        {
-            throw new RuntimeException(e);
-        }
+        return state;
     }
 
-    public long ramBytesUsed()
-    {
-        return RamUsageEstimator.sizeOf(node2count) +4 + 4 + 8;
-
-    }
 }

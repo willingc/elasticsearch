@@ -11,19 +11,25 @@ import java.io.IOException;
 public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<PercentileBuilder> {
 
     private double[] percentiles;
-    private String executionHint;
+    private Percentiles.ExecutionHint executionHint;
 
     public PercentileBuilder(String name) {
-        super(name, InternalPercentile.TYPE.name());
-    }
-
-    public PercentileBuilder executionHint(String executionHint) {
-        this.executionHint = executionHint;
-        return this;
+        super(name, InternalPercentiles.TYPE.name());
     }
 
     public PercentileBuilder percentiles(double... percentiles) {
+        for (int i = 0; i < percentiles.length; i++) {
+            if (percentiles[i] < 0 || percentiles[i] > 100) {
+                throw new IllegalArgumentException("the percents in the percentiles aggregation [" +
+                        name + "] must be in the [0, 100] range");
+            }
+        }
         this.percentiles = percentiles;
+        return this;
+    }
+
+    public PercentileBuilder executionHint(Percentiles.ExecutionHint executionHint) {
+        this.executionHint = executionHint;
         return this;
     }
 
@@ -32,11 +38,12 @@ public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<Per
         super.internalXContent(builder, params);
 
         if (percentiles != null) {
-            builder.field("percentiles", percentiles);
+            builder.field("percents", percentiles);
         }
 
         if (executionHint != null) {
-            builder.field("execution_hint", executionHint);
+            builder.field("execution_hint", executionHint.type());
+            executionHint.paramsToXContent(builder);
         }
     }
 }

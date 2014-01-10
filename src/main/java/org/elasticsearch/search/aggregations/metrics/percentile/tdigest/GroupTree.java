@@ -1,4 +1,4 @@
-package org.elasticsearch.search.aggregations.metrics.percentile.providers.tdigest;
+package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -33,11 +33,11 @@ import com.google.common.base.Preconditions;
  * A tree containing TDigest.Group.  This adds to the normal NavigableSet the
  * ability to sum up the size of elements to the left of a particular group.
  */
-public class GroupTree implements Iterable<TDigest.Group> {
+public class GroupTree implements Iterable<TDigestState.Group> {
     private int count;
-    private int size;
+    int size;
     private int depth;
-    private TDigest.Group leaf;
+    private TDigestState.Group leaf;
     private GroupTree left, right;
 
     public GroupTree() {
@@ -46,7 +46,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
         left = right = null;
     }
 
-    public GroupTree(TDigest.Group leaf) {
+    public GroupTree(TDigestState.Group leaf) {
         size = depth = 1;
         this.leaf = leaf;
         count = leaf.count();
@@ -62,7 +62,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
         leaf = this.right.first();
     }
 
-    public void add(TDigest.Group group) {
+    public void add(TDigestState.Group group) {
         if (size == 0) {
             leaf = group;
             depth = 1;
@@ -131,7 +131,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * @return the number of items strictly before the current element
      */
-    public int headCount(TDigest.Group base) {
+    public int headCount(TDigestState.Group base) {
         if (size == 0) {
             return 0;
         } else if (left == null) {
@@ -148,7 +148,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * @return the sum of the size() function for all elements strictly before the current element.
      */
-    public int headSum(TDigest.Group base) {
+    public int headSum(TDigestState.Group base) {
         if (size == 0) {
             return 0;
         } else if (left == null) {
@@ -165,7 +165,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * @return the first Group in this set
      */
-    public TDigest.Group first() {
+    public TDigestState.Group first() {
         Preconditions.checkState(size > 0, "No first element of empty set");
         if (left == null) {
             return leaf;
@@ -177,7 +177,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * Iteratres through all groups in the tree.
      */
-    public Iterator<TDigest.Group> iterator() {
+    public Iterator<TDigestState.Group> iterator() {
         return iterator(null);
     }
 
@@ -188,8 +188,8 @@ public class GroupTree implements Iterable<TDigest.Group> {
      * @return An iterator that goes through the groups in order of mean and id starting at or after the
      *         specified Group.
      */
-    private Iterator<TDigest.Group> iterator(final TDigest.Group start) {
-        return new AbstractIterator<TDigest.Group>() {
+    private Iterator<TDigestState.Group> iterator(final TDigestState.Group start) {
+        return new AbstractIterator<TDigestState.Group>() {
             {
                 stack = new ArrayDeque<GroupTree>();
                 push(GroupTree.this, start);
@@ -199,7 +199,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
 
             // recurses down to the leaf that is >= start
             // pending right hand branches on the way are put on the stack
-            private void push(GroupTree z, TDigest.Group start) {
+            private void push(GroupTree z, TDigestState.Group start) {
                 while (z.left != null) {
                     if (start == null || start.compareTo(z.leaf) < 0) {
                         // remember we will have to process the right hand branch later
@@ -218,7 +218,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
             }
 
             @Override
-            protected TDigest.Group computeNext() {
+            protected TDigestState.Group computeNext() {
                 GroupTree r = stack.poll();
                 while (r != null && r.left != null) {
                     // unpack r onto the stack
@@ -237,7 +237,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
         };
     }
 
-    public void remove(TDigest.Group base) {
+    public void remove(TDigestState.Group base) {
         Preconditions.checkState(size > 0, "Cannot remove from empty set");
         if (size == 1) {
             Preconditions.checkArgument(base.compareTo(leaf) == 0, "Element %s not found", base);
@@ -280,7 +280,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * @return the largest element less than or equal to base
      */
-    public TDigest.Group floor(TDigest.Group base) {
+    public TDigestState.Group floor(TDigestState.Group base) {
         if (size == 0) {
             return null;
         } else {
@@ -290,7 +290,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
                 if (base.compareTo(leaf) < 0) {
                     return left.floor(base);
                 } else {
-                    TDigest.Group floor = right.floor(base);
+                    TDigestState.Group floor = right.floor(base);
                     if (floor == null) {
                         floor = left.last();
                     }
@@ -300,7 +300,7 @@ public class GroupTree implements Iterable<TDigest.Group> {
         }
     }
 
-    public TDigest.Group last() {
+    public TDigestState.Group last() {
         Preconditions.checkState(size > 0, "Cannot find last element of empty set");
         if (size == 1) {
             return leaf;
@@ -312,14 +312,14 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * @return the smallest element greater than or equal to base.
      */
-    public TDigest.Group ceiling(TDigest.Group base) {
+    public TDigestState.Group ceiling(TDigestState.Group base) {
         if (size == 0) {
             return null;
         } else if (size == 1) {
             return base.compareTo(leaf) <= 0 ? leaf : null;
         } else {
             if (base.compareTo(leaf) < 0) {
-                TDigest.Group r = left.ceiling(base);
+                TDigestState.Group r = left.ceiling(base);
                 if (r == null) {
                     r = right.first();
                 }
@@ -333,10 +333,10 @@ public class GroupTree implements Iterable<TDigest.Group> {
     /**
      * @return the subset of elements equal to or greater than base.
      */
-    public Iterable<TDigest.Group> tailSet(final TDigest.Group start) {
-        return new Iterable<TDigest.Group>() {
+    public Iterable<TDigestState.Group> tailSet(final TDigestState.Group start) {
+        return new Iterable<TDigestState.Group>() {
             @Override
-            public Iterator<TDigest.Group> iterator() {
+            public Iterator<TDigestState.Group> iterator() {
                 return GroupTree.this.iterator(start);
             }
         };
