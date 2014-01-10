@@ -237,9 +237,12 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
 
         @Override
         public Frugal merge() {
-            if (merging != null) {
+            if (currentMerge > 0) {
+                if (estimates == null) {
+                    estimates = new double[percents.length];
+                }
                 for (int i = 0; i < percents.length; ++i) {
-                    Frugal.this.estimates[i] = QuickSelect.quickSelect(merging, i * expectedMerges, (i * expectedMerges) + expectedMerges - 1, expectedMerges / 2);
+                    estimates[i] = QuickSelect.quickSelect(merging, i * expectedMerges, (i * expectedMerges) + currentMerge - 1, currentMerge / 2);
                 }
             }
             return Frugal.this;
