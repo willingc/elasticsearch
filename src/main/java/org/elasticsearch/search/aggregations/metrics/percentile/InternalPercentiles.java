@@ -20,21 +20,15 @@
 package org.elasticsearch.search.aggregations.metrics.percentile;
 
 import com.google.common.collect.UnmodifiableIterator;
-import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.common.io.stream.Streamable;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.search.aggregations.AggregationStreams;
 import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.aggregations.metrics.MetricsAggregation;
-import org.elasticsearch.search.aggregations.metrics.percentile.frugal.Frugal;
-import org.elasticsearch.search.aggregations.metrics.percentile.qdigest.QDigest;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigest;
 import org.elasticsearch.search.aggregations.support.numeric.ValueFormatterStreams;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
@@ -58,20 +52,20 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
         AggregationStreams.registerStream(STREAM, TYPE.stream());
     }
 
-    private Estimator estimator;
+    private PercentilesEstimator.Result result;
     private boolean keyed;
 
     InternalPercentiles() {} // for serialization
 
-    public InternalPercentiles(String name, Estimator estimator, boolean keyed) {
+    public InternalPercentiles(String name, PercentilesEstimator.Result result, boolean keyed) {
         super(name);
-        this.estimator = estimator;
+        this.result = result;
         this.keyed = keyed;
     }
 
     @Override
     public double value(String name) {
-        return estimator.estimate(Double.valueOf(name));
+        return result.estimate(Double.valueOf(name));
     }
 
     @Override
@@ -81,12 +75,12 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
 
     @Override
     public double percentile(double percent) {
-        return estimator.estimate(percent);
+        return result.estimate(percent);
     }
 
     @Override
     public Iterator<Percentiles.Percentile> iterator() {
-        return new Iter(estimator);
+        return new Iter(result);
     }
 
     @Override
@@ -96,11 +90,11 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
         if (aggregations.size() == 1) {
             return first;
         }
-        Estimator.Merger<Estimator> merger = first.estimator.merger(aggregations.size());
+        PercentilesEstimator.Result.Merger merger = first.result.merger(aggregations.size());
         for (InternalAggregation aggregation : aggregations) {
-            merger.add(((InternalPercentiles) aggregation).estimator);
+            merger.add(((InternalPercentiles) aggregation).result);
         }
-        first.estimator = merger.merge();
+        first.result = merger.merge();
         return first;
     }
 
@@ -108,7 +102,7 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
     public void readFrom(StreamInput in) throws IOException {
         name = in.readString();
         valueFormatter = ValueFormatterStreams.readOptional(in);
-        estimator = Estimator.Streams.read(in);
+        result = PercentilesEstimator.Streams.read(in);
         keyed = in.readBoolean();
     }
 
@@ -116,18 +110,18 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
     public void writeTo(StreamOutput out) throws IOException {
         out.writeString(name);
         ValueFormatterStreams.writeOptional(valueFormatter, out);
-        Estimator.Streams.write(estimator, out);
+        PercentilesEstimator.Streams.write(result, out);
         out.writeBoolean(keyed);
     }
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-        double[] percents = estimator.percents();
+        double[] percents = result.percents;
         if (keyed) {
             builder.startObject(name);
             for(int i = 0; i < percents.length; ++i) {
                 String key = String.valueOf(percents[i]);
-                double value = estimator.estimate(i);
+                double value = result.estimate(i);
                 builder.field(key, value);
                 if (valueFormatter != null) {
                     builder.field(key + "_as_string", valueFormatter.format(value));
@@ -137,7 +131,7 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
         } else {
             builder.startArray(name);
             for (int i = 0; i < percents.length; i++) {
-                double value = estimator.estimate(i);
+                double value = result.estimate(i);
                 builder.startObject();
                 builder.field(CommonFields.KEY, percents[i]);
                 builder.field(CommonFields.VALUE, value);
@@ -151,100 +145,24 @@ public class InternalPercentiles extends MetricsAggregation.MultiValue implement
         return builder;
     }
 
-    public abstract static class Estimator<E extends Estimator> implements Streamable {
-
-        protected double[] percents;
-
-        protected Estimator() {} // for serialization
-
-        public Estimator(double[] percents) {
-            this.percents = percents;
-        }
-
-        protected abstract byte id();
-
-        /**
-         * @return list of percentile intervals
-         */
-        public double[] percents() {
-            return percents;
-        }
-
-        /**
-         * Offer a new value to the streaming percentile algo.  May modify the current
-         * estimate
-         *
-         * @param value Value to stream
-         */
-        public abstract void offer(double value);
-
-        public double estimate(double percent) {
-            int i = Arrays.binarySearch(percents, percent);
-            assert i >= 0;
-            return estimate(i);
-        }
-
-        public abstract double estimate(int index);
-
-        public abstract Merger<E> merger(int expectedMerges);
-
-        public abstract long ramBytesUsed();
-
-        /**
-         * Responsible for merging multiple estimators into a single one.
-         */
-        public static interface Merger<E> {
-
-            void add(E e);
-
-            E merge();
-        }
-
-        public static interface Factory<E extends Estimator<E>> {
-
-            public abstract E create(double[] percents);
-
-        }
-
-        static class Streams {
-
-            static Estimator read(StreamInput in) throws IOException {
-                switch (in.readByte()) {
-                    case Frugal.ID: return Frugal.readNewFrom(in);
-                    case QDigest.ID : return QDigest.readNewFrom(in);
-                    case TDigest.ID: return TDigest.readNewFrom(in);
-                    default:
-                        throw new ElasticsearchIllegalArgumentException("Unknown percentie estimator");
-                }
-            }
-
-            static void write(Estimator estimator, StreamOutput out) throws IOException {
-                out.writeByte(estimator.id());
-                estimator.writeTo(out);
-            }
-
-        }
-
-    }
-
     public static class Iter extends UnmodifiableIterator<Percentiles.Percentile> {
 
-        private final Estimator estimator;
+        private final PercentilesEstimator.Result result;
         private int i;
 
-        public Iter(Estimator estimator) {
-            this.estimator = estimator;
+        public Iter(PercentilesEstimator.Result estimator) {
+            this.result = estimator;
             i = 0;
         }
 
         @Override
         public boolean hasNext() {
-            return i < estimator.percents.length;
+            return i < result.percents.length;
         }
 
         @Override
         public Percentiles.Percentile next() {
-            final Percentiles.Percentile next = new InnerPercentile(estimator.percents[i], estimator.estimate(i));
+            final Percentiles.Percentile next = new InnerPercentile(result.percents[i], result.estimate(i));
             ++i;
             return next;
         }

@@ -26,6 +26,8 @@ import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.search.SearchParseException;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
+import org.elasticsearch.search.aggregations.metrics.percentile.frugal.Frugal;
+import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigest;
 import org.elasticsearch.search.aggregations.support.FieldContext;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
 import org.elasticsearch.search.aggregations.support.numeric.NumericValuesSource;
@@ -60,7 +62,7 @@ public class PercentileParser implements Aggregator.Parser {
         String field = null;
         String script = null;
         String scriptLang = null;
-        InternalExecutionHint executionHint = InternalExecutionHint.TDIGEST;
+        EstimatorType estimatorType = EstimatorType.TDIGEST;
         double[] percents = DEFAULT_PERCENTS;
         Map<String, Object> scriptParams = null;
         boolean assumeSorted = false;
@@ -79,11 +81,8 @@ public class PercentileParser implements Aggregator.Parser {
                     script = parser.text();
                 } else if ("lang".equals(currentFieldName)) {
                     scriptLang = parser.text();
-                } else if ("execution_hint".equals(currentFieldName)) {
-                    executionHint = InternalExecutionHint.resolve(parser.text());
-                    if (executionHint == null) {
-                        throw new SearchParseException(context, "Unknown percentile execution_hint [" + parser.text() + "]");
-                    }
+                } else if ("estimator".equals(currentFieldName)) {
+                    estimatorType = EstimatorType.resolve(parser.text(), context);
                 } else {
                     if (settings == null) {
                         settings = new HashMap<String, Object>();
@@ -110,7 +109,7 @@ public class PercentileParser implements Aggregator.Parser {
                     scriptParams = parser.map();
                 }
             } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
-                if ("script_values_sorted".equals(currentFieldName)) {
+                if ("script_values_sorted".equals(currentFieldName) || "scriptValuesSorted".equals(currentFieldName)) {
                     assumeSorted = parser.booleanValue();
                 } if ("keyed".equals(currentFieldName)) {
                     keyed = parser.booleanValue();
@@ -128,6 +127,8 @@ public class PercentileParser implements Aggregator.Parser {
             }
         }
 
+        PercentilesEstimator.Factory estimatorFactory = estimatorType.estimatorFactory(settings);
+
         if (script != null) {
             config.script(context.scriptService().search(context.lookup(), scriptLang, script, scriptParams));
         }
@@ -137,18 +138,50 @@ public class PercentileParser implements Aggregator.Parser {
         }
 
         if (field == null) {
-            return new PercentileAggregator.Factory(aggregationName, config, executionHint.estimatorFactory(settings), percents, keyed);
+            return new PercentileAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
         }
 
         FieldMapper<?> mapper = context.smartNameFieldMapper(field);
         if (mapper == null) {
             config.unmapped(true);
-            return new PercentileAggregator.Factory(aggregationName, config, executionHint.estimatorFactory(settings), percents, keyed);
+            return new PercentileAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
         }
 
         IndexFieldData<?> indexFieldData = context.fieldData().getForField(mapper);
         config.fieldContext(new FieldContext(field, indexFieldData));
-        return new PercentileAggregator.Factory(aggregationName, config, executionHint.estimatorFactory(settings), percents, keyed);
+        return new PercentileAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
     }
 
+    /**
+     *
+     */
+    public static enum EstimatorType {
+
+        FRUGAL() {
+            @Override
+            public PercentilesEstimator.Factory estimatorFactory(Map<String, Object> settings) {
+                return new Frugal.Factory();
+            }
+        },
+
+        TDIGEST() {
+            @Override
+            public PercentilesEstimator.Factory estimatorFactory(Map<String, Object> settings) {
+                return new TDigest.Factory(settings);
+            }
+        };
+
+        public abstract PercentilesEstimator.Factory estimatorFactory(Map<String, Object> settings);
+
+        public static EstimatorType resolve(String name, SearchContext context) {
+            if (name.equals("frugal")) {
+                return FRUGAL;
+            }
+            if (name.equals("tdigest")) {
+                return TDIGEST;
+            }
+            throw new SearchParseException(context, "Unknown percentile estimator [" + name + "]");
+        }
+
+    }
 }

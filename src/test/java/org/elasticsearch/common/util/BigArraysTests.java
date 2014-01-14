@@ -160,6 +160,32 @@ public class BigArraysTests extends ElasticsearchTestCase {
         array2.release();
     }
 
+    public void testObjectArrayFill() {
+        final int len = randomIntBetween(1, 100000);
+        final int fromIndex = randomIntBetween(0, len - 1);
+        final int toIndex = randomBoolean()
+                ? Math.min(fromIndex + randomInt(100), len) // single page
+                : randomIntBetween(fromIndex, len); // likely multiple pages
+        final ObjectArray<String> array2 = BigArrays.newObjectArray(len, randomCacheRecycler());
+        final String[] array1 = new String[len];
+        for (int i = 0; i < len; ++i) {
+            array1[i] = String.valueOf(randomLong());
+            array2.set(i, array1[i]);
+        }
+        final String rand = String.valueOf(randomLong());
+        Arrays.fill(array1, fromIndex, toIndex, rand);
+        array2.fill(fromIndex, toIndex, new ObjectArray.Filler<String>() {
+            @Override
+            public String objectFor(long index) {
+                return rand;
+            }
+        });
+        for (int i = 0; i < len; ++i) {
+            assertEquals(array1[i], array2.get(i));
+        }
+        array2.release();
+    }
+
     public void testByteArrayBulkGet() {
         final byte[] array1 = new byte[randomIntBetween(1, 4000000)];
         getRandom().nextBytes(array1);

@@ -29,9 +29,9 @@ import java.io.IOException;
  */
 public interface Percentiles extends Aggregation, Iterable<Percentiles.Percentile> {
 
-    public static abstract class ExecutionHint {
+    public static abstract class Estimator {
 
-        public static ExecutionHint frugal() {
+        public static Estimator frugal() {
             return Frugal.instance;
         }
 
@@ -39,17 +39,13 @@ public interface Percentiles extends Aggregation, Iterable<Percentiles.Percentil
             return new TDigest();
         }
 
-        public static QDigest qDigest() {
-            return new QDigest();
-        }
-
         private final String type;
 
-        protected ExecutionHint(String type) {
+        protected Estimator(String type) {
             this.type = type;
         }
 
-        private static class Frugal extends ExecutionHint {
+        private static class Frugal extends Estimator {
 
             private final static Frugal instance = new Frugal();
 
@@ -62,7 +58,7 @@ public interface Percentiles extends Aggregation, Iterable<Percentiles.Percentil
             }
         }
 
-        public static class TDigest extends ExecutionHint {
+        public static class TDigest extends Estimator {
 
             protected double compression = -1;
 
@@ -71,27 +67,6 @@ public interface Percentiles extends Aggregation, Iterable<Percentiles.Percentil
             }
 
             public TDigest compression(double compression) {
-                this.compression = compression;
-                return this;
-            }
-
-            @Override
-            void paramsToXContent(XContentBuilder builder) throws IOException {
-                if (compression > 0) {
-                    builder.field("compression", compression);
-                }
-            }
-        }
-
-        public static class QDigest extends ExecutionHint {
-
-            protected double compression = -1;
-
-            QDigest() {
-                super("qdigest");
-            }
-
-            public QDigest compression(double compression) {
                 this.compression = compression;
                 return this;
             }

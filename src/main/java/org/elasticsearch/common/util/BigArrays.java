@@ -149,6 +149,13 @@ public enum BigArrays {
             return array[(int) index] += inc;
         }
 
+        @Override
+        public void fill(long fromIndex, long toIndex, int value) {
+            assert indexIsInt(fromIndex);
+            assert indexIsInt(toIndex);
+            Arrays.fill(array, (int) fromIndex, (int) toIndex, value);
+        }
+
     }
 
     private static class LongArrayWrapper extends AbstractArray implements LongArray {
@@ -264,6 +271,15 @@ public enum BigArrays {
             T ret = (T) array[(int) index];
             array[(int) index] = value;
             return ret;
+        }
+
+        @Override
+        public void fill(long fromIndex, long toIndex, Filler<T> filler) {
+            assert indexIsInt(fromIndex);
+            assert indexIsInt(toIndex);
+            for (int i = (int) fromIndex; i < (int) toIndex; i++) {
+                array[i] = filler.objectFor(fromIndex + i);
+            }
         }
 
     }

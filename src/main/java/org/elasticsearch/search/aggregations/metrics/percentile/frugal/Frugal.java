@@ -3,34 +3,29 @@ package org.elasticsearch.search.aggregations.metrics.percentile.frugal;
 import com.carrotsearch.hppc.DoubleArrayList;
 import jsr166y.ThreadLocalRandom;
 import org.apache.lucene.util.OpenBitSet;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.CollectionUtils;
-import org.elasticsearch.search.aggregations.metrics.percentile.InternalPercentiles;
+import org.elasticsearch.common.util.DoubleArray;
+import org.elasticsearch.common.util.IntArray;
+import org.elasticsearch.search.aggregations.metrics.percentile.PercentilesEstimator;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Random;
 
-public class Frugal extends InternalPercentiles.Estimator<Frugal> {
+public class Frugal extends PercentilesEstimator {
 
     public final static byte ID = 0;
 
     private final Random rand;
 
-    private double min = Double.POSITIVE_INFINITY, max = Double.NEGATIVE_INFINITY;
-    public double[] estimates;  // Current estimate of percentile
-    private int[] steps;        // Current step value for frugal-2u
-    private OpenBitSet signs;   // Direction of last movement
-
-    Frugal() { // for serialization
-
-        // if we wanted to do it right... we'd need an "OpenRandom" class where we have access to the current seed
-        // and the serialize the seed as well. In our context, it doesn't matter much as the rand is not used once
-        // this commulate is transferred (the rand is no used in the reduce phase)
-        this.rand = ThreadLocalRandom.current();
-    }
+    private DoubleArray mins;
+    private DoubleArray maxes;
+    private DoubleArray[] estimates;  // Current estimate of percentile
+    private IntArray[] steps;        // Current step value for frugal-2u
+    private OpenBitSet[] signs;   // Direction of last movement
+    private OpenBitSet offered;
 
     /**
      * Instantiate a new FrugalProvider
@@ -46,48 +41,57 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
      *
      * @param percents how many intervals to calculate quantiles for
      */
-    public Frugal(double[] percents) {
+    public Frugal(final double[] percents, long estimatedBucketCount) {
         super(percents);
-        this.steps = new int[percents.length];
-        this.signs = new OpenBitSet(percents.length);
-        this.signs.set(0, percents.length);
-        Arrays.fill(this.steps, 1);
+        mins = BigArrays.newDoubleArray(estimatedBucketCount);
+        mins.fill(0, mins.size(), Double.POSITIVE_INFINITY);
+        maxes = BigArrays.newDoubleArray(estimatedBucketCount);
+        maxes.fill(0, maxes.size(), Double.NEGATIVE_INFINITY);
+        steps = new IntArray[percents.length];
+        for (int i = 0; i < steps.length; i++) {
+            steps[i] = BigArrays.newIntArray(estimatedBucketCount);
+            steps[i].fill(0, steps[i].size(), 1);
+        }
+        estimates = new DoubleArray[percents.length];
+        steps = new IntArray[percents.length];
+        signs = new OpenBitSet[percents.length];
+        for (int i = 0; i < estimates.length; i++) {
+            estimates[i] = BigArrays.newDoubleArray(estimatedBucketCount);
+            steps[i].fill(0, steps[i].size(), 1);
+            signs[i].set(0, signs[i].length());
+        }
+        offered = new OpenBitSet(estimatedBucketCount);
         this.rand = ThreadLocalRandom.current();
     }
 
     @Override
-    protected byte id() {
-        return ID;
-    }
+    public void offer(double value, long bucketOrd) {
 
-    /**
-     * Offer a new value to the streaming percentile algo.  May modify the current
-     * estimate
-     *
-     * @param value Value to stream
-     */
-    public void offer(double value) {
+        BigArrays.grow(mins, bucketOrd + 1);
+        BigArrays.grow(maxes, bucketOrd + 1);
 
-        // Set estimate to first value in stream...helps to avoid fully cold starts
-        if (estimates == null) {
-            estimates = new double[percents.length];
-            Arrays.fill(this.estimates, value);
-            min = value;
-            max = value;
+        if (!offered.get(bucketOrd)) {
+            offered.set(bucketOrd);
+            for (int i = 0; i < estimates.length; i++) {
+                BigArrays.grow(estimates[i], bucketOrd + 1);
+                estimates[i].set(bucketOrd, value);
+            }
+            mins.set(bucketOrd, value);
+            maxes.set(bucketOrd, value);
             return;
         }
 
-        min = Math.min(value, min);
-        max = Math.max(value, max);
+        mins.set(bucketOrd, Math.min(value, mins.get(bucketOrd)));
+        maxes.set(bucketOrd, Math.max(value, maxes.get(bucketOrd)));
 
         final double randomValue = rand.nextDouble() * 100;
         for (int i = 0 ; i < percents.length; ++i) {
-            offerTo(i, value, randomValue);
+            offerTo(bucketOrd, i, value, randomValue);
         }
     }
 
-    private void offerTo(int index, double value, double randomValue) {
-        double percent = this.percents[index];
+    private void offerTo(long bucketOrd, int index, double value, double randomValue) {
+        double percent = percents[index];
 
         if (percent == 0 || percent == 100) {
             // we calculate those separately
@@ -100,199 +104,213 @@ public class Frugal extends InternalPercentiles.Estimator<Frugal> {
          * step boost but still a small boost to estimate
          */
 
-        if (value > estimates[index] && randomValue > (100.0d - percent)) {
-            steps[index] += signs.get(index) ? 1 : -1;
+        if (value > estimates[index].get(bucketOrd) && randomValue > (100.0d - percent)) {
+            steps[index].increment(bucketOrd, signs[index].get(bucketOrd) ? 1 : -1);
 
-            if (steps[index] > 0) {
-                estimates[index] += steps[index];
+            if (steps[index].get(bucketOrd) > 0) {
+                estimates[index].increment(bucketOrd, steps[index].get(bucketOrd));
             } else {
-                ++estimates[index];
+                estimates[index].increment(bucketOrd, 1);
             }
 
-            signs.set(index);
+            signs[index].set(bucketOrd);
 
             //If we overshot, reduce step and reset estimate
-            if (estimates[index] > value) {
-                steps[index] += (value - estimates[index]);
-                estimates[index] = value;
+            double estimate = estimates[index].get(bucketOrd);
+            if (estimate > value) {
+                steps[index].set(bucketOrd, (int) (value - estimate));
+                estimates[index].set(bucketOrd, value);
             }
 
-        } else if (value < estimates[index] && randomValue < (100.0d - percent)) {
-            steps[index] += signs.get(index) ? -1 : 1;
+        } else if (value < estimates[index].get(bucketOrd) && randomValue < (100.0d - percent)) {
+            steps[index].set(bucketOrd, signs[index].get(bucketOrd) ? -1 : 1);
 
-            if (steps[index] > 0) {
-                estimates[index] -= steps[index];
+            if (steps[index].get(bucketOrd) > 0) {
+                estimates[index].increment(bucketOrd, -steps[index].get(bucketOrd));
             } else {
-                --estimates[index];
+                estimates[index].increment(bucketOrd, -1);
             }
 
-            signs.clear(index);
+            signs[index].clear(bucketOrd);
 
             //If we overshot, reduce step and reset estimate
-            if (estimates[index] < value) {
-                steps[index] += (estimates[index] - value);
-                estimates[index] = value;
+            double estimate = estimates[index].get(bucketOrd);
+            if (estimate < value) {
+                steps[index].set(bucketOrd, (int) (estimate - value));
+                estimates[index].set(bucketOrd, value);
             }
         }
 
         // Smooth out oscillations
-        if ((estimates[index] - value) * (signs.get(index) ? 1 : -1)  < 0 && steps[index] > 1) {
-            steps[index] = 1;
+        if ((estimates[index].get(bucketOrd) - value) * (signs[index].get(bucketOrd) ? 1 : -1)  < 0 && steps[index].get(bucketOrd) > 1) {
+            steps[index].set(bucketOrd, 1);
         }
 
         // Prevent step from growing more negative than necessary
-        if (steps[index] <= -Integer.MAX_VALUE + 1000) {
-            steps[index] = -Integer.MAX_VALUE + 1000;
-        }
-    }
-
-    public double estimate(int index) {
-        if (estimates == null) {
-            return Double.NaN;
-        }
-        if (percents[index] == 0) {
-            return min;
-        } else if (percents[index] == 100) {
-            return max;
-        } else {
-            return Math.max(Math.min(estimates[index], max), min);
+        if (steps[index].get(bucketOrd) <= -Integer.MAX_VALUE + 1000) {
+            steps[index].set(bucketOrd, -Integer.MAX_VALUE + 1000);
         }
     }
 
     @Override
-    public Merger merger(int expectedMerges) {
-        return new Merger(expectedMerges);
-    }
-
-    public static Frugal readNewFrom(StreamInput in) throws IOException {
-        Frugal frugal = new Frugal();
-        frugal.readFrom(in);
-        return frugal;
+    public Flyweight flyweight(long bucketOrd) {
+        double[] bucketEstimates = new double[percents.length];
+        for (int i = 0; i < estimates.length ; i++) {
+            bucketEstimates[i] = estimates[i].get(bucketOrd);
+        }
+        return new Flyweight(percents, bucketEstimates, mins.get(bucketOrd), maxes.get(bucketOrd));
     }
 
     @Override
-    public void readFrom(StreamInput in) throws IOException {
-        this.percents = new double[in.readInt()];
-        this.estimates = in.readBoolean() ? new double[this.percents.length] : null;
-        this.steps = new int[this.percents.length];
+    public Flyweight emptyFlyweight() {
+        return new Flyweight();
+    }
 
-        if (estimates != null) {
-            min = in.readDouble();
-            max = in.readDouble();
+    public static class Flyweight extends Result<Frugal, Flyweight> {
+
+        private double min;
+        private double max;
+        private double[] estimates;
+
+        Flyweight() {
         }
 
-        for (int i = 0 ; i < percents.length; ++i) {
-            percents[i] = in.readDouble();
-            steps[i] = in.readInt();
-            if (estimates != null) {
-                estimates[i] = in.readDouble();
+        Flyweight(double[] percents, double[] estimates, double min, double max) {
+            super(percents);
+            this.estimates = estimates;
+            this.min = min;
+            this.max = max;
+        }
+
+        @Override
+        protected byte id() {
+            return ID;
+        }
+
+        @Override
+        public double estimate(int index) {
+            if (estimates == null) {
+                return Double.NaN;
+            }
+            if (percents[index] == 0) {
+                return min;
+            } else if (percents[index] == 100) {
+                return max;
+            } else {
+                return Math.max(Math.min(estimates[index], max), min);
             }
         }
 
-        long[] bits = new long[in.readInt()];
-        for (int i = 0; i < bits.length; ++i) {
-            bits[i] = in.readLong();
+        @Override
+        public Merger merger(int estimatedMerges) {
+            return new Merger(estimatedMerges);
         }
-        signs = new OpenBitSet(bits, in.readInt());
-    }
 
-    @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        out.writeInt(percents.length);
-        out.writeBoolean(estimates != null);
-        if (estimates != null) {
-            out.writeDouble(min);
-            out.writeDouble(max);
+        public static Flyweight readNewFrom(StreamInput in) throws IOException {
+            Flyweight flyweight = new Flyweight();
+            flyweight.readFrom(in);
+            return flyweight;
         }
-        for (int i = 0 ; i < percents.length; ++i) {
-            out.writeDouble(percents[i]);
-            out.writeInt(steps[i]);
+
+        @Override
+        public void readFrom(StreamInput in) throws IOException {
+            this.percents = new double[in.readInt()];
+            this.estimates = in.readBoolean() ? new double[this.percents.length] : null;
+
             if (estimates != null) {
-                out.writeDouble(estimates[i]);
+                min = in.readDouble();
+                max = in.readDouble();
+            }
+
+            for (int i = 0 ; i < percents.length; ++i) {
+                percents[i] = in.readDouble();
+                if (estimates != null) {
+                    estimates[i] = in.readDouble();
+                }
             }
         }
-        long[] bits = signs.getBits();
-        out.writeInt(bits.length);
-        for (int i = 0; i < bits.length; ++i) {
-            out.writeLong(bits[i]);
+
+        @Override
+        public void writeTo(StreamOutput out) throws IOException {
+            out.writeInt(percents.length);
+            out.writeBoolean(estimates != null);
+            if (estimates != null) {
+                out.writeDouble(min);
+                out.writeDouble(max);
+            }
+            for (int i = 0 ; i < percents.length; ++i) {
+                out.writeDouble(percents[i]);
+                if (estimates != null) {
+                    out.writeDouble(estimates[i]);
+                }
+            }
         }
-        out.writeInt(signs.getNumWords());
+
+        class Merger implements Result.Merger<Frugal, Frugal.Flyweight> {
+
+            private final int expectedMerges;
+            private DoubleArrayList merging;
+
+            private Merger(int expectedMerges) {
+                this.expectedMerges = expectedMerges;
+            }
+
+            @Override
+            public void add(Flyweight flyweight) {
+                if (flyweight.estimates == null) {
+                    return;
+                }
+
+                min = Math.min(min, flyweight.min);
+                max = Math.max(max, flyweight.max);
+
+                if (merging == null) {
+                    merging = new DoubleArrayList(expectedMerges * percents.length);
+                }
+
+                for (int i = 0; i < percents.length; ++i) {
+                    merging.add(flyweight.estimate(i));
+                }
+            }
+
+            @Override
+            public Result<Frugal, Flyweight> merge() {
+                if (merging != null) {
+                    if (estimates == null) {
+                        estimates = new double[percents.length];
+                    }
+                    CollectionUtils.sort(merging);
+                    final int numMerges = merging.size() / percents.length;
+                    for (int i = 0; i < percents.length; ++i) {
+                        estimates[i] = weightedValue(merging, numMerges * i + (percents[i] / 100 * (numMerges - 1)));
+                    }
+                }
+                return Flyweight.this;
+            }
+
+            private double weightedValue(DoubleArrayList list, double index) {
+                assert index <= list.size() - 1;
+                final int intIndex = (int) index;
+                final double d = index - intIndex;
+                if (d == 0) {
+                    return list.get(intIndex);
+                }
+                return (1 - d) * list.get(intIndex) + d * list.get(intIndex + 1);
+            }
+        }
     }
 
     @Override
     public long ramBytesUsed() {
-        return RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + percents.length * 8
-                + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + (estimates != null ? estimates.length * 8 : 0)
-                + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + steps.length * 4
-                + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + signs.getBits().length * 8 + 8 /* numBits */ + 4 /* wlen */ // signs bitset
-                + RamUsageEstimator.NUM_BYTES_OBJECT_REF * 2 + RamUsageEstimator.NUM_BYTES_OBJECT_HEADER * 2 + 8; // Random
+        return -1; // todo implement
     }
 
-    /**
-     * Responsible for merging multiple frugal estimators. Merging is accomplished by taking the median for
-     * each percentile.  More accurate than simply averaging, though probably slower.
-     */
-    private class Merger implements InternalPercentiles.Estimator.Merger<Frugal> {
-
-        private final int expectedMerges;
-        private DoubleArrayList merging;
-
-        private Merger(int expectedMerges) {
-            this.expectedMerges = expectedMerges;
-        }
+    public static class Factory implements PercentilesEstimator.Factory<Frugal> {
 
         @Override
-        public void add(Frugal frugal) {
-
-            if (frugal.estimates == null) {
-                return;
-            }
-
-            min = Math.min(min, frugal.min);
-            max = Math.max(max, frugal.max);
-
-            if (merging == null) {
-                merging = new DoubleArrayList(expectedMerges * percents.length);
-            }
-
-            for (int i = 0; i < percents.length; ++i) {
-                merging.add(frugal.estimate(i));
-            }
+        public Frugal create(double[] percents, long estimatedBucketCount) {
+            return new Frugal(percents, estimatedBucketCount);
         }
-
-        private double weightedValue(DoubleArrayList list, double index) {
-            assert index <= list.size() - 1;
-            final int intIndex = (int) index;
-            final double d = index - intIndex;
-            if (d == 0) {
-                return list.get(intIndex);
-            } else {
-                return (1 - d) * list.get(intIndex) + d * list.get(intIndex + 1);
-            }
-        }
-
-        @Override
-        public Frugal merge() {
-            if (merging != null) {
-                if (estimates == null) {
-                    estimates = new double[percents.length];
-                }
-                CollectionUtils.sort(merging);
-                final int numMerges = merging.size() / percents.length;
-                for (int i = 0; i < percents.length; ++i) {
-                    estimates[i] = weightedValue(merging, numMerges * i + (percents[i] / 100 * (numMerges - 1)));
-                }
-            }
-            return Frugal.this;
-        }
-
     }
 
-    public static class Factory implements InternalPercentiles.Estimator.Factory<Frugal> {
-
-        public Frugal create(double[] percents) {
-            return new Frugal(percents);
-        }
-
-    }
 }

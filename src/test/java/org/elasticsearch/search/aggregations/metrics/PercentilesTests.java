@@ -40,13 +40,12 @@ import static org.hamcrest.Matchers.*;
  */
 public class PercentilesTests extends AbstractNumericTests {
 
-    private static Percentiles.ExecutionHint randomHint() {
-        final Percentiles.ExecutionHint executionHint = randomFrom(Arrays.asList(
-                Percentiles.ExecutionHint.frugal()/*,
-                Percentiles.ExecutionHint.qDigest(),
-                Percentiles.ExecutionHint.tDigest()*/));
-        Loggers.getLogger(PercentilesTests.class).info("Using execution_hint={}", executionHint);
-        return executionHint;
+    private static Percentiles.Estimator randomHint() {
+        final Percentiles.Estimator estimator = randomFrom(Arrays.asList(
+//                Percentiles.Estimator.frugal(),
+                Percentiles.Estimator.tDigest()));
+        Loggers.getLogger(PercentilesTests.class).info("Using execution_hint={}", estimator);
+        return estimator;
     }
 
     private static double[] randomPercentiles() {

@@ -2,96 +2,129 @@ package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.search.aggregations.metrics.percentile.InternalPercentiles;
+import org.elasticsearch.common.util.BigArrays;
+import org.elasticsearch.common.util.ObjectArray;
+import org.elasticsearch.search.aggregations.metrics.percentile.PercentilesEstimator;
 
 import java.io.IOException;
 import java.util.Map;
 
 
-public class TDigest extends InternalPercentiles.Estimator {
+public class TDigest extends PercentilesEstimator {
 
-    public final static byte ID = 2;
+    public final static byte ID = 1;
 
-    public TDigestState state;
+    public ObjectArray<TDigestState> states;
+    private final double compression;
 
-    public TDigest() {} // for serialization
-
-    public TDigest(double[] percents, double compression) {
+    public TDigest(double[] percents, double compression, long estimatedBucketsCount) {
         super(percents);
-        state = new TDigestState(compression);
+        states = BigArrays.newObjectArray(estimatedBucketsCount);
+        this.compression = compression;
     }
 
-    @Override
-    protected byte id() {
-        return ID;
-    }
-
-    public void offer(double value) {
+    public void offer(double value, long bucketOrd) {
+        if (bucketOrd >= states.size()) {
+            long overSize = BigArrays.overSize(bucketOrd + 1);
+            states = BigArrays.resize(states, overSize);
+        }
+        TDigestState state = states.get(bucketOrd);
+        if (state == null) {
+            state = new TDigestState(compression);
+            states.set(bucketOrd, state);
+        }
         state.add(value);
     }
 
-
-    public double estimate(int index) {
-        return state.quantile(percents[index] / 100);
-    }
-
     @Override
-    public InternalPercentiles.Estimator.Merger merger(int expectedMerges) {
-        return new Merger();
+    public Result flyweight(long bucketOrd) {
+        return new Flyweight(percents, states.get(bucketOrd));
     }
 
     public long ramBytesUsed() {
         return -1;
     }
 
-    public static TDigest readNewFrom(StreamInput in) throws IOException {
-        TDigest digest = new TDigest();
-        digest.readFrom(in);
-        return digest;
-    }
-
     @Override
-    public void readFrom(StreamInput in) throws IOException {
-        this.percents = new double[in.readInt()];
-        for (int i = 0; i < percents.length; i++) {
-            percents[i] = in.readDouble();
-        }
-        state = TDigestState.read(in);
+    public Result emptyFlyweight() {
+        return new Flyweight(percents, null);
     }
 
+    public static class Flyweight extends Result<TDigest, Flyweight> {
 
-    @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        out.writeInt(percents.length);
-        for (int i = 0 ; i < percents.length; ++i) {
-            out.writeDouble(percents[i]);
-        }
-        TDigestState.write(state, out);
-    }
+        private TDigestState state;
 
-    private class Merger implements InternalPercentiles.Estimator.Merger<TDigest> {
+        public Flyweight() {} // for serialization
 
-        private TDigest merged;
-
-        @Override
-        public void add(TDigest tDigest) {
-            if (merged == null) {
-                merged = tDigest;
-                return;
-            }
-            if (tDigest.state.size() == 0) {
-                return;
-            }
-            merged.state.add(tDigest.state);
+        public Flyweight(double[] percents, TDigestState state) {
+            super(percents);
+            this.state = state;
         }
 
         @Override
-        public TDigest merge() {
-            return merged;
+        protected byte id() {
+            return ID;
         }
+
+        @Override
+        public double estimate(int index) {
+            return state == null || state.size() > 0 ? Double.NaN : state.quantile(percents[index] / 100);
+        }
+
+        @Override
+        public Merger merger(int estimatedMerges) {
+            return new Merger();
+        }
+
+        public static Flyweight read(StreamInput in) throws IOException {
+            Flyweight flyweight = new Flyweight();
+            flyweight.readFrom(in);
+            return flyweight;
+        }
+
+        @Override
+        public void readFrom(StreamInput in) throws IOException {
+            this.percents = new double[in.readInt()];
+            for (int i = 0; i < percents.length; i++) {
+                percents[i] = in.readDouble();
+            }
+            state = TDigestState.read(in);
+        }
+
+        @Override
+        public void writeTo(StreamOutput out) throws IOException {
+            out.writeInt(percents.length);
+            for (int i = 0 ; i < percents.length; ++i) {
+                out.writeDouble(percents[i]);
+            }
+            TDigestState.write(state, out);
+        }
+
+        private class Merger implements Result.Merger<TDigest, Flyweight> {
+
+            private Flyweight merged;
+
+            @Override
+            public void add(Flyweight flyweight) {
+                if (merged == null || merged.state == null) {
+                    merged = flyweight;
+                    return;
+                }
+                if (flyweight.state == null || flyweight.state.size() == 0) {
+                    return;
+                }
+                merged.state.add(flyweight.state);
+            }
+
+            @Override
+            public Flyweight merge() {
+                return merged;
+            }
+        }
+
     }
 
-    public static class Factory implements InternalPercentiles.Estimator.Factory {
+    public static class Factory implements PercentilesEstimator.Factory {
 
         private final double compression;
 
@@ -106,8 +139,8 @@ public class TDigest extends InternalPercentiles.Estimator {
             this.compression = compression;
         }
 
-        public TDigest create(double[] percents) {
-            return new TDigest(percents, compression);
+        public TDigest create(double[] percents, long estimtedBucketCount) {
+            return new TDigest(percents, compression, estimtedBucketCount);
         }
     }
 

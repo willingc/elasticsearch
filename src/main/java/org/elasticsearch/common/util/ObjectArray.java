@@ -27,11 +27,31 @@ public interface ObjectArray<T> extends BigArray {
     /**
      * Get an element given its index.
      */
-    public abstract T get(long index);
+    T get(long index);
 
     /**
      * Set a value at the given index and return the previous value.
      */
-    public abstract T set(long index, T value);
+    T set(long index, T value);
+
+    /**
+     * Fill slots between {@code fromIndex} inclusive to {@code toIndex} exclusive with {@code value}
+     */
+    void fill(long fromIndex, long toIndex, Filler<T> filler);
+
+    /**
+     * A filler of objects that is used to fill the array
+     *
+     * @see ObjectArray#fill(long, long, Filler)
+     */
+    public static interface Filler<T> {
+
+        /**
+         * @param index The index/slot of the array to fill
+         * @return      The object to fill the given slot with
+         */
+        T objectFor(long index);
+
+    }
 
 }

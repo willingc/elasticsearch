@@ -11,7 +11,7 @@ import java.io.IOException;
 public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<PercentileBuilder> {
 
     private double[] percentiles;
-    private Percentiles.ExecutionHint executionHint;
+    private Percentiles.Estimator estimator;
 
     public PercentileBuilder(String name) {
         super(name, InternalPercentiles.TYPE.name());
@@ -28,8 +28,8 @@ public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<Per
         return this;
     }
 
-    public PercentileBuilder executionHint(Percentiles.ExecutionHint executionHint) {
-        this.executionHint = executionHint;
+    public PercentileBuilder executionHint(Percentiles.Estimator estimator) {
+        this.estimator = estimator;
         return this;
     }
 
@@ -41,9 +41,9 @@ public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<Per
             builder.field("percents", percentiles);
         }
 
-        if (executionHint != null) {
-            builder.field("execution_hint", executionHint.type());
-            executionHint.paramsToXContent(builder);
+        if (estimator != null) {
+            builder.field("execution_hint", estimator.type());
+            estimator.paramsToXContent(builder);
         }
     }
 }

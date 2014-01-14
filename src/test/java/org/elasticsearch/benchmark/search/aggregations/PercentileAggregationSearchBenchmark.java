@@ -35,7 +35,7 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.ExecutionHint;
+import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Estimator;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
 
 import java.util.*;
@@ -53,10 +53,9 @@ import static org.elasticsearch.search.aggregations.AggregationBuilders.percenti
 public class PercentileAggregationSearchBenchmark {
 
     private static final int AMPLITUDE = 10000;
-    private static final Map<String, ExecutionHint> EXECUTION_HINTS = ImmutableMap.of(
-            "frugal", ExecutionHint.frugal(),
-            "qdigest", ExecutionHint.qDigest(),
-            "tdigest", ExecutionHint.tDigest());
+    private static final Map<String, Percentiles.Estimator> EXECUTION_HINTS = ImmutableMap.of(
+            "frugal", Estimator.frugal(),
+            "tdigest", Estimator.tDigest());
     private static final int NUM_DOCS = (int) SizeValue.parseSizeValue("1m").singles();
     private static final int BATCH = 100;
     private static final String CLUSTER_NAME = PercentileAggregationSearchBenchmark.class.getSimpleName();
@@ -125,6 +124,7 @@ public class PercentileAggregationSearchBenchmark {
 
         for (Distribution d : Distribution.values()) {
             try {
+//                client.admin().indices().prepareDelete(d.indexName()).execute().actionGet();
                 client.admin().indices().create(createIndexRequest(d.indexName()).settings(settings)).actionGet();
             } catch (Exception e) {
                 System.out.println("Index " + d.indexName() + " already exists, skipping index creation");
@@ -181,7 +181,7 @@ public class PercentileAggregationSearchBenchmark {
             }
             System.out.println("Expected percentiles: " + percentiles);
             System.out.println();
-            for (Map.Entry<String, ExecutionHint> executionHint : EXECUTION_HINTS.entrySet()) {
+            for (Map.Entry<String, Percentiles.Estimator> executionHint : EXECUTION_HINTS.entrySet()) {
                 SearchResponse resp = client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").executionHint(executionHint.getValue()).field("v").percentiles(PERCENTILES)).execute().actionGet();
                 Percentiles pcts = resp.getAggregations().get("pcts");
                 Map<Double, Double> asMap = Maps.newLinkedHashMap();
@@ -201,7 +201,7 @@ public class PercentileAggregationSearchBenchmark {
         for (int i = 0; i < 3; ++i) {
             for (Distribution d : Distribution.values()) {
                 System.out.println("#### " + d);
-                for (Map.Entry<String, ExecutionHint> executionHint : EXECUTION_HINTS.entrySet()) {
+                for (Map.Entry<String, Percentiles.Estimator> executionHint : EXECUTION_HINTS.entrySet()) {
                     for (int j = 0; j < QUERY_WARMUP; ++j) {
                         client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").executionHint(executionHint.getValue()).field("v").percentiles(PERCENTILES)).execute().actionGet();
                     }
