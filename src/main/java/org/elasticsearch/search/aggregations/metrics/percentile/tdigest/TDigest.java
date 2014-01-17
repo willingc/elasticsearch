@@ -1,6 +1,5 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
-import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.search.aggregations.metrics.percentile.InternalPercentiles;
@@ -33,7 +32,7 @@ public class TDigest extends InternalPercentiles.Estimator {
 
 
     public double estimate(int index) {
-        return state.size() > 0 ? state.quantile(percents[index] / 100) : Double.NaN;
+        return state.quantile(percents[index] / 100);
     }
 
     @Override
@@ -42,7 +41,7 @@ public class TDigest extends InternalPercentiles.Estimator {
     }
 
     public long ramBytesUsed() {
-        return state.byteSize() + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + percents.length * 8;
+        return -1;
     }
 
     public static TDigest readNewFrom(StreamInput in) throws IOException {

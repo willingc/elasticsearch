@@ -1,4 +1,4 @@
-package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
+package org.elasticsearch.search.aggregations.metrics;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -18,11 +18,15 @@ package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
  */
 
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.Lists;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
-import com.google.common.collect.AbstractIterator;
-import com.google.common.base.Preconditions;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Upstream: Stream-lib, master @ 704002a2d8fa01fa7e9868dae9d0c8bedd8e9427
@@ -33,11 +37,11 @@ import com.google.common.base.Preconditions;
  * A tree containing TDigest.Group.  This adds to the normal NavigableSet the
  * ability to sum up the size of elements to the left of a particular group.
  */
-public class GroupTree implements Iterable<TDigestState.Group> {
+public class GroupTree implements Iterable<GroupTree.Group> {
     private int count;
     int size;
     private int depth;
-    private TDigestState.Group leaf;
+    private Group leaf;
     private GroupTree left, right;
 
     public GroupTree() {
@@ -46,7 +50,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
         left = right = null;
     }
 
-    public GroupTree(TDigestState.Group leaf) {
+    public GroupTree(Group leaf) {
         size = depth = 1;
         this.leaf = leaf;
         count = leaf.count();
@@ -62,7 +66,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
         leaf = this.right.first();
     }
 
-    public void add(TDigestState.Group group) {
+    public void add(Group group) {
         if (size == 0) {
             leaf = group;
             depth = 1;
@@ -131,7 +135,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * @return the number of items strictly before the current element
      */
-    public int headCount(TDigestState.Group base) {
+    public int headCount(Group base) {
         if (size == 0) {
             return 0;
         } else if (left == null) {
@@ -148,7 +152,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * @return the sum of the size() function for all elements strictly before the current element.
      */
-    public int headSum(TDigestState.Group base) {
+    public int headSum(Group base) {
         if (size == 0) {
             return 0;
         } else if (left == null) {
@@ -165,7 +169,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * @return the first Group in this set
      */
-    public TDigestState.Group first() {
+    public Group first() {
         Preconditions.checkState(size > 0, "No first element of empty set");
         if (left == null) {
             return leaf;
@@ -177,7 +181,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * Iteratres through all groups in the tree.
      */
-    public Iterator<TDigestState.Group> iterator() {
+    public Iterator<Group> iterator() {
         return iterator(null);
     }
 
@@ -188,8 +192,8 @@ public class GroupTree implements Iterable<TDigestState.Group> {
      * @return An iterator that goes through the groups in order of mean and id starting at or after the
      *         specified Group.
      */
-    private Iterator<TDigestState.Group> iterator(final TDigestState.Group start) {
-        return new AbstractIterator<TDigestState.Group>() {
+    private Iterator<Group> iterator(final Group start) {
+        return new AbstractIterator<Group>() {
             {
                 stack = new ArrayDeque<GroupTree>();
                 push(GroupTree.this, start);
@@ -199,7 +203,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
 
             // recurses down to the leaf that is >= start
             // pending right hand branches on the way are put on the stack
-            private void push(GroupTree z, TDigestState.Group start) {
+            private void push(GroupTree z, Group start) {
                 while (z.left != null) {
                     if (start == null || start.compareTo(z.leaf) < 0) {
                         // remember we will have to process the right hand branch later
@@ -218,7 +222,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
             }
 
             @Override
-            protected TDigestState.Group computeNext() {
+            protected Group computeNext() {
                 GroupTree r = stack.poll();
                 while (r != null && r.left != null) {
                     // unpack r onto the stack
@@ -237,7 +241,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
         };
     }
 
-    public void remove(TDigestState.Group base) {
+    public void remove(Group base) {
         Preconditions.checkState(size > 0, "Cannot remove from empty set");
         if (size == 1) {
             Preconditions.checkArgument(base.compareTo(leaf) == 0, "Element %s not found", base);
@@ -280,7 +284,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * @return the largest element less than or equal to base
      */
-    public TDigestState.Group floor(TDigestState.Group base) {
+    public Group floor(Group base) {
         if (size == 0) {
             return null;
         } else {
@@ -290,7 +294,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
                 if (base.compareTo(leaf) < 0) {
                     return left.floor(base);
                 } else {
-                    TDigestState.Group floor = right.floor(base);
+                    Group floor = right.floor(base);
                     if (floor == null) {
                         floor = left.last();
                     }
@@ -300,7 +304,7 @@ public class GroupTree implements Iterable<TDigestState.Group> {
         }
     }
 
-    public TDigestState.Group last() {
+    public Group last() {
         Preconditions.checkState(size > 0, "Cannot find last element of empty set");
         if (size == 1) {
             return leaf;
@@ -312,14 +316,14 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * @return the smallest element greater than or equal to base.
      */
-    public TDigestState.Group ceiling(TDigestState.Group base) {
+    public Group ceiling(Group base) {
         if (size == 0) {
             return null;
         } else if (size == 1) {
             return base.compareTo(leaf) <= 0 ? leaf : null;
         } else {
             if (base.compareTo(leaf) < 0) {
-                TDigestState.Group r = left.ceiling(base);
+                Group r = left.ceiling(base);
                 if (r == null) {
                     r = right.first();
                 }
@@ -333,10 +337,10 @@ public class GroupTree implements Iterable<TDigestState.Group> {
     /**
      * @return the subset of elements equal to or greater than base.
      */
-    public Iterable<TDigestState.Group> tailSet(final TDigestState.Group start) {
-        return new Iterable<TDigestState.Group>() {
+    public Iterable<Group> tailSet(final Group start) {
+        return new Iterable<Group>() {
             @Override
-            public Iterator<TDigestState.Group> iterator() {
+            public Iterator<Group> iterator() {
                 return GroupTree.this.iterator(start);
             }
         };
@@ -369,6 +373,110 @@ public class GroupTree implements Iterable<TDigestState.Group> {
         if (left != null) {
             left.print(depth + 1);
             right.print(depth + 1);
+        }
+    }
+    
+
+    public static class Group implements Comparable<Group> {
+        private static final AtomicInteger uniqueCount = new AtomicInteger(1);
+
+        double centroid = 0;
+        int count = 0;
+        private int id;
+
+        private List<Double> actualData = null;
+
+        private Group(boolean record) {
+            id = uniqueCount.incrementAndGet();
+            if (record) {
+                actualData = Lists.newArrayList();
+            }
+        }
+
+        public Group(double x) {
+            this(false);
+            start(x, uniqueCount.getAndIncrement());
+        }
+
+        public Group(double x, int id) {
+            this(false);
+            start(x, id);
+        }
+
+        public Group(double x, int id, boolean record) {
+            this(record);
+            start(x, id);
+        }
+
+        private void start(double x, int id) {
+            this.id = id;
+            add(x, 1);
+        }
+
+        public void add(double x, int w) {
+            if (actualData != null) {
+                actualData.add(x);
+            }
+            count += w;
+            centroid += w * (x - centroid) / count;
+        }
+
+        public double mean() {
+            return centroid;
+        }
+
+        public int count() {
+            return count;
+        }
+
+        public int id() {
+            return id;
+        }
+
+        @Override
+        public String toString() {
+            return "Group{" +
+                    "centroid=" + centroid +
+                    ", count=" + count +
+                    '}';
+        }
+
+        @Override
+        public int hashCode() {
+            return id;
+        }
+
+        @Override
+        public int compareTo(Group o) {
+            int r = Double.compare(centroid, o.centroid);
+            if (r == 0) {
+                r = id - o.id;
+            }
+            return r;
+        }
+
+        public Iterable<? extends Double> data() {
+            return actualData;
+        }
+
+        public static Group createWeighted(double x, int w, Iterable<? extends Double> data) {
+            Group r = new Group(data != null);
+            r.add(x, w, data);
+            return r;
+        }
+
+        private void add(double x, int w, Iterable<? extends Double> data) {
+            if (actualData != null) {
+                if (data != null) {
+                    for (Double old : data) {
+                        actualData.add(old);
+                    }
+                } else {
+                    actualData.add(x);
+                }
+            }
+            count += w;
+            centroid += w * (x - centroid) / count;
         }
     }
 }

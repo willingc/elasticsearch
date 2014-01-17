@@ -1,69 +1,45 @@
+/*
+* Licensed to the Apache Software Foundation (ASF) under one or more
+* contributor license agreements. See the NOTICE file distributed with
+* this work for additional information regarding copyright ownership.
+* The ASF licenses this file to You under the Apache License, Version 2.0
+* (the "License"); you may not use this file except in compliance with
+* the License. You may obtain a copy of the License at
+*
+* http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*/
+
 package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/**
- * Upstream: Stream-lib, master @ 704002a2d8fa01fa7e9868dae9d0c8bedd8e9427
- * https://github.com/addthis/stream-lib/blob/master/src/main/java/com/clearspring/analytics/stream/quantile/TDigest.java
- */
-
+import com.carrotsearch.hppc.cursors.IntCursor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import jsr166y.ThreadLocalRandom;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.GroupRedBlackTree.SizeAndSum;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
-
 
 /**
- * Adaptive histogram based on something like streaming k-means crossed with Q-digest.
- * <p/>
- * The special characteristics of this algorithm are:
- * <p/>
- * a) smaller summaries than Q-digest
- * <p/>
- * b) works on doubles as well as integers.
- * <p/>
- * c) provides part per million accuracy for extreme quantiles and typically <1000 ppm accuracy for middle quantiles
- * <p/>
- * d) fast
- * <p/>
- * e) simple
- * <p/>
- * f) test coverage > 90%
- * <p/>
- * g) easy to adapt for use with map-reduce
+ * Fork of https://github.com/tdunning/t-digest/blob/master/src/main/java/com/tdunning/math/stats/TDigest.java
+ * Modified for less object allocation, faster estimations and integration with Elasticsearch serialization.
  */
 public class TDigestState {
 
-    private Random gen;
-
+    private final Random gen;
     private double compression = 100;
-    private GroupTree summary = new GroupTree();
-    private int count = 0;
-    private boolean recordAllData = false;
+    private GroupRedBlackTree summary;
+    private long count = 0;
+    private final SizeAndSum sizeAndSum = new SizeAndSum();
 
     /**
      * A histogram structure that will record a sketch of a distribution.
@@ -75,7 +51,8 @@ public class TDigestState {
      */
     public TDigestState(double compression) {
         this.compression = compression;
-        gen = ThreadLocalRandom.current();
+        gen = new Random();
+        summary = new GroupRedBlackTree((int) Math.ceil(100 * compression));
     }
 
     /**
@@ -93,28 +70,25 @@ public class TDigestState {
      * @param x The value to add.
      * @param w The weight of this point.
      */
-    public void add(double x, int w) {
-        // note that because of a zero id, this will be sorted *before* any existing Group with the same mean
-        Group base = createGroup(x, 0);
-        add(x, w, base);
-    }
-
-    private void add(double x, int w, Group base) {
-        Group start = summary.floor(base);
-        if (start == null) {
-            start = summary.ceiling(base);
+    public void add(double x, long w) {
+        int startNode = summary.floorNode(x);
+        if (startNode == RedBlackTree.NIL) {
+            startNode = summary.ceilingNode(x);
         }
 
-        if (start == null) {
-            summary.add(Group.createWeighted(x, w, base.data()));
+        if (startNode == RedBlackTree.NIL) {
+            summary.addGroup(x, w);
             count = w;
         } else {
-            Iterable<Group> neighbors = summary.tailSet(start);
-            double minDistance = Double.MAX_VALUE;
+            Iterable<IntCursor> neighbors = summary.tailSet(startNode);
+            double minDistance = Double.POSITIVE_INFINITY;
             int lastNeighbor = 0;
-            int i = summary.headCount(start);
-            for (Group neighbor : neighbors) {
-                double z = Math.abs(neighbor.mean() - x);
+            summary.headSum(startNode, sizeAndSum);
+            final int headSize = sizeAndSum.size;
+            int i = headSize;
+            for (IntCursor cursor : neighbors) {
+                final int node = cursor.value;
+                double z = Math.abs(summary.mean(node) - x);
                 if (z <= minDistance) {
                     minDistance = z;
                     lastNeighbor = i;
@@ -124,35 +98,38 @@ public class TDigestState {
                 i++;
             }
 
-            Group closest = null;
-            int sum = summary.headSum(start);
-            i = summary.headCount(start);
+            int closest = RedBlackTree.NIL;
+            long sum = sizeAndSum.sum;
+            i = headSize;
             double n = 1;
-            for (Group neighbor : neighbors) {
+            for (IntCursor cursor : neighbors) {
                 if (i > lastNeighbor) {
                     break;
                 }
-                double z = Math.abs(neighbor.mean() - x);
-                double q = (sum + neighbor.count() / 2.0) / count;
+                final int node = cursor.value;
+                double z = Math.abs(summary.mean(node) - x);
+                double q = (sum + summary.count(node) / 2.0) / count;
                 double k = 4 * count * q * (1 - q) / compression;
 
                 // this slightly clever selection method improves accuracy with lots of repeated points
-                if (z == minDistance && neighbor.count() + w <= k) {
+                if (z == minDistance && summary.count(node) + w <= k) {
                     if (gen.nextDouble() < 1 / n) {
-                        closest = neighbor;
+                        closest = node;
                     }
                     n++;
                 }
-                sum += neighbor.count();
+                sum += summary.count(node);
                 i++;
             }
 
-            if (closest == null) {
-                summary.add(Group.createWeighted(x, w, base.data()));
+            if (closest == RedBlackTree.NIL) {
+                summary.addGroup(x, w);
             } else {
-                summary.remove(closest);
-                closest.add(x, w, base.data());
-                summary.add(closest);
+                double centroid = summary.mean(closest);
+                long count = summary.count(closest);
+                count += w;
+                centroid += w * (x - centroid) / count;
+                summary.updateGroup(closest, centroid, count);
             }
             count += w;
 
@@ -168,12 +145,26 @@ public class TDigestState {
         }
     }
 
-    public void add(TDigestState other) {
-        List<Group> tmp = Lists.newArrayList(other.summary);
+    private int[] shuffleNodes(RedBlackTree tree) {
+        int[] nodes = new int[tree.size()];
+        int i = 0;
+        for (IntCursor cursor : tree) {
+            nodes[i++] = cursor.value;
+        }
+        assert i == tree.size();
+        for (i = tree.size() - 1; i > 0; --i) {
+            final int slot = gen.nextInt(i + 1);
+            final int tmp = nodes[slot];
+            nodes[slot] = nodes[i];
+            nodes[i] = tmp;
+        }
+        return nodes;
+    }
 
-        Collections.shuffle(tmp, gen);
-        for (Group group : tmp) {
-            add(group.mean(), group.count(), group);
+    public void add(TDigestState other) {
+        final int[] shuffledNodes = shuffleNodes(other.summary);
+        for (int node : shuffledNodes) {
+            add(other.summary.mean(node), other.summary.count(node));
         }
     }
 
@@ -182,9 +173,6 @@ public class TDigestState {
         List<TDigestState> elements = Lists.newArrayList(subData);
         int n = Math.max(1, elements.size() / 4);
         TDigestState r = new TDigestState(compression);
-        if (elements.get(0).recordAllData) {
-            r.recordAllData();
-        }
         for (int i = 0; i < elements.size(); i += n) {
             if (n > 1) {
                 r.add(merge(compression, elements.subList(i, Math.min(i + n, elements.size()))));
@@ -199,17 +187,12 @@ public class TDigestState {
         compress(summary);
     }
 
-    private void compress(GroupTree other) {
+    private void compress(GroupRedBlackTree other) {
         TDigestState reduced = new TDigestState(compression);
-        if (recordAllData) {
-            reduced.recordAllData();
+        final int[] shuffledNodes = shuffleNodes(other);
+        for (int node : shuffledNodes) {
+            reduced.add(other.mean(node), other.count(node));
         }
-        List<Group> tmp = Lists.newArrayList(other);
-        Collections.shuffle(tmp, gen);
-        for (Group group : tmp) {
-            reduced.add(group.mean(), group.count(), group);
-        }
-
         summary = reduced.summary;
     }
 
@@ -219,8 +202,12 @@ public class TDigestState {
      *
      * @return the number of samples that have been added.
      */
-    public int size() {
+    public long size() {
         return count;
+    }
+
+    public GroupRedBlackTree centroids() {
+        return summary;
     }
 
     /**
@@ -228,44 +215,44 @@ public class TDigestState {
      * @return the approximate fraction of all samples that were less than or equal to x.
      */
     public double cdf(double x) {
-        GroupTree values = summary;
+        GroupRedBlackTree values = summary;
         if (values.size() == 0) {
             return Double.NaN;
         } else if (values.size() == 1) {
-            return x < values.first().mean() ? 0 : 1;
+            return x < values.mean(values.root()) ? 0 : 1;
         } else {
             double r = 0;
 
             // we scan a across the centroids
-            Iterator<Group> it = values.iterator();
-            Group a = it.next();
+            Iterator<IntCursor> it = values.iterator();
+            int a = it.next().value;
 
             // b is the look-ahead to the next centroid
-            Group b = it.next();
+            int b = it.next().value;
 
             // initially, we set left width equal to right width
-            double left = (b.mean() - a.mean()) / 2;
+            double left = (values.mean(b) - values.mean(a)) / 2;
             double right = left;
 
             // scan to next to last element
             while (it.hasNext()) {
-                if (x < a.mean() + right) {
-                    return (r + a.count() * interpolate(x, a.mean() - left, a.mean() + right)) / count;
+                if (x < values.mean(a) + right) {
+                    return (r + values.count(a) * interpolate(x, values.mean(a) - left, values.mean(a) + right)) / count;
                 }
-                r += a.count();
+                r += values.count(a);
 
                 a = b;
-                b = it.next();
+                b = it.next().value;
 
                 left = right;
-                right = (b.mean() - a.mean()) / 2;
+                right = (values.mean(b) - values.mean(a)) / 2;
             }
 
             // for the last element, assume right width is same as left
             left = right;
             a = b;
-            if (x < a.mean() + right) {
-                return (r + a.count() * interpolate(x, a.mean() - left, a.mean() + right)) / count;
+            if (x < values.mean(a) + right) {
+                return (r + values.count(a) * interpolate(x, values.mean(a) - left, values.mean(a) + right)) / count;
             } else {
                 return 1;
             }
@@ -277,55 +264,51 @@ public class TDigestState {
      * @return The minimum value x such that we think that the proportion of samples is <= x is q.
      */
     public double quantile(double q) {
-        GroupTree values = summary;
-        Preconditions.checkArgument(values.size() > 1);
+        GroupRedBlackTree values = summary;
+        if (values.size() == 0) {
+            return Double.NaN;
+        } else if (values.size() == 1) {
+            return values.mean(values.root());
+        }
 
-        Iterator<Group> it = values.iterator();
-        Group center = it.next();
-        Group leading = it.next();
+        Iterator<IntCursor> it = values.iterator();
+        int a = it.next().value;
+        int b = it.next().value;
         if (!it.hasNext()) {
-            // only two centroids because of size limits
             // both a and b have to have just a single element
-            double diff = (leading.mean() - center.mean()) / 2;
+            double diff = (summary.mean(b) - summary.mean(a)) / 2;
             if (q > 0.75) {
-                return leading.mean() + diff * (4 * q - 3);
+                return summary.mean(b) + diff * (4 * q - 3);
             } else {
-                return center.mean() + diff * (4 * q - 1);
+                return summary.mean(a) + diff * (4 * q - 1);
             }
         } else {
             q *= count;
-            double right = (leading.mean() - center.mean()) / 2;
+            double right = (summary.mean(b) - summary.mean(a)) / 2;
             // we have nothing else to go on so make left hanging width same as right to start
             double left = right;
 
-            double t = center.count();
-            while (it.hasNext()) {
-                if (t + center.count() / 2 >= q) {
-                    // left side of center
-                    return center.mean() - left * 2 * (q - t) / center.count();
-                } else if (t + leading.count() >= q) {
-                    // right of b but left of the left-most thing beyond
-                    return center.mean() + right * 2.0 * (center.count() - (q - t)) / center.count();
-                }
-                t += center.count();
-
-                center = leading;
-                leading = it.next();
-                left = right;
-                right = (leading.mean() - center.mean()) / 2;
-            }
-            // ran out of data ... assume final width is symmetrical
-            center = leading;
-            left = right;
-            if (t + center.count() / 2 >= q) {
-                // left side of center
-                return center.mean() - left * 2 * (q - t) / center.count();
-            } else if (t + leading.count() >= q) {
-                // right of center but left of leading
-                return center.mean() + right * 2.0 * (center.count() - (q - t)) / center.count();
+            if (q <= summary.count(a)) {
+                return summary.mean(a) + left * (2 * q - summary.count(a)) / summary.count(a);
             } else {
-                // shouldn't be possible
-                return 1;
+                double t = summary.count(a);
+                while (it.hasNext()) {
+                    if (t + summary.count(b) / 2 >= q) {
+                        // left of b
+                        return summary.mean(b) - left * 2 * (q - t) / summary.count(b);
+                    } else if (t + summary.count(b) >= q) {
+                        // right of b but left of the left-most thing beyond
+                        return summary.mean(b) + right * 2 * (q - t - summary.count(b) / 2.0) / summary.count(b);
+                    }
+                    t += summary.count(b);
+
+                    a = b;
+                    b = it.next().value;
+                    left = right;
+                    right = (summary.mean(b) - summary.mean(a)) / 2;
+                }
+                // shouldn't be possible but we have an answer anyway
+                return summary.mean(b) + right;
             }
         }
     }
@@ -334,277 +317,33 @@ public class TDigestState {
         return summary.size();
     }
 
-    public Iterable<? extends Group> centroids() {
-        return summary;
-    }
-
     public double compression() {
         return compression;
-    }
-
-    /**
-     * Sets up so that all centroids will record all data assigned to them.  For testing only, really.
-     */
-    public TDigestState recordAllData() {
-        recordAllData = true;
-        return this;
-    }
-
-    /**
-     * Returns an upper bound on the number bytes that will be required to represent this histogram.
-     */
-    public int byteSize() {
-        return 4 + 8 + 4 + summary.size() * 12;
-    }
-
-    /**
-     * Returns an upper bound on the number of bytes that will be required to represent this histogram in
-     * the tighter representation.
-     */
-    public int smallByteSize() {
-        int bound = byteSize();
-        ByteBuffer buf = ByteBuffer.allocate(bound);
-        asSmallBytes(buf);
-        return buf.position();
-    }
-
-    public final static int VERBOSE_ENCODING = 1;
-    public final static int SMALL_ENCODING = 2;
-
-    /**
-     * Outputs a histogram as bytes using a particularly cheesy encoding.
-     */
-    public void asBytes(ByteBuffer buf) {
-        buf.putInt(VERBOSE_ENCODING);
-        buf.putDouble(compression());
-        buf.putInt(summary.size());
-        for (Group group : summary) {
-            buf.putDouble(group.mean());
-        }
-
-        for (Group group : summary) {
-            buf.putInt(group.count());
-        }
-    }
-
-    public void asSmallBytes(ByteBuffer buf) {
-        buf.putInt(SMALL_ENCODING);
-        buf.putDouble(compression());
-        buf.putInt(summary.size());
-
-        double x = 0;
-        for (Group group : summary) {
-            double delta = group.mean() - x;
-            x = group.mean();
-            buf.putFloat((float) delta);
-        }
-
-        for (Group group : summary) {
-            int n = group.count();
-            encode(buf, n);
-        }
-    }
-
-    public static void encode(ByteBuffer buf, int n) {
-        int k = 0;
-        while (n < 0 || n > 0x7f) {
-            byte b = (byte) (0x80 | (0x7f & n));
-            buf.put(b);
-            n = n >>> 7;
-            k++;
-            Preconditions.checkState(k < 6);
-        }
-        buf.put((byte) n);
-    }
-
-    public static int decode(ByteBuffer buf) {
-        int v = buf.get();
-        int z = 0x7f & v;
-        int shift = 7;
-        while ((v & 0x80) != 0) {
-            Preconditions.checkState(shift <= 28);
-            v = buf.get();
-            z += (v & 0x7f) << shift;
-            shift += 7;
-        }
-        return z;
-    }
-
-    /**
-     * Reads a histogram from a byte buffer
-     *
-     * @return The new histogram structure
-     */
-    public static TDigestState fromBytes(ByteBuffer buf) {
-        int encoding = buf.getInt();
-        if (encoding == VERBOSE_ENCODING) {
-            double compression = buf.getDouble();
-            TDigestState r = new TDigestState(compression);
-            int n = buf.getInt();
-            double[] means = new double[n];
-            for (int i = 0; i < n; i++) {
-                means[i] = buf.getDouble();
-            }
-            for (int i = 0; i < n; i++) {
-                r.add(means[i], buf.getInt());
-            }
-            return r;
-        } else if (encoding == SMALL_ENCODING) {
-            double compression = buf.getDouble();
-            TDigestState r = new TDigestState(compression);
-            int n = buf.getInt();
-            double[] means = new double[n];
-            double x = 0;
-            for (int i = 0; i < n; i++) {
-                double delta = buf.getFloat();
-                x += delta;
-                means[i] = x;
-            }
-
-            for (int i = 0; i < n; i++) {
-                int z = decode(buf);
-                r.add(means[i], z);
-            }
-            return r;
-        } else {
-            throw new IllegalStateException("Invalid format for serialized histogram");
-        }
-    }
-
-    private Group createGroup(double mean, int id) {
-        return new Group(mean, id, recordAllData);
     }
 
     private double interpolate(double x, double x0, double x1) {
         return (x - x0) / (x1 - x0);
     }
 
-    public static class Group implements Comparable<Group> {
-        private static final AtomicInteger uniqueCount = new AtomicInteger(1);
-
-        double centroid = 0;
-        int count = 0;
-        private int id;
-
-        private List<Double> actualData = null;
-
-        private Group(boolean record) {
-            id = uniqueCount.incrementAndGet();
-            if (record) {
-                actualData = Lists.newArrayList();
-            }
-        }
-
-        public Group(double x) {
-            this(false);
-            start(x, uniqueCount.getAndIncrement());
-        }
-
-        public Group(double x, int id) {
-            this(false);
-            start(x, id);
-        }
-
-        public Group(double x, int id, boolean record) {
-            this(record);
-            start(x, id);
-        }
-
-        private void start(double x, int id) {
-            this.id = id;
-            add(x, 1);
-        }
-
-        public void add(double x, int w) {
-            if (actualData != null) {
-                actualData.add(x);
-            }
-            count += w;
-            centroid += w * (x - centroid) / count;
-        }
-
-        public double mean() {
-            return centroid;
-        }
-
-        public int count() {
-            return count;
-        }
-
-        public int id() {
-            return id;
-        }
-
-        @Override
-        public String toString() {
-            return "Group{" +
-                    "centroid=" + centroid +
-                    ", count=" + count +
-                    '}';
-        }
-
-        @Override
-        public int hashCode() {
-            return id;
-        }
-
-        @Override
-        public int compareTo(Group o) {
-            int r = Double.compare(centroid, o.centroid);
-            if (r == 0) {
-                r = id - o.id;
-            }
-            return r;
-        }
-
-        public Iterable<? extends Double> data() {
-            return actualData;
-        }
-
-        public static Group createWeighted(double x, int w, Iterable<? extends Double> data) {
-            Group r = new Group(data != null);
-            r.add(x, w, data);
-            return r;
-        }
-
-        private void add(double x, int w, Iterable<? extends Double> data) {
-            if (actualData != null) {
-                if (data != null) {
-                    for (Double old : data) {
-                        actualData.add(old);
-                    }
-                } else {
-                    actualData.add(x);
-                }
-            }
-            count += w;
-            centroid += w * (x - centroid) / count;
-        }
-    }
-
     //===== elastic search serialization ======//
 
     public static void write(TDigestState state, StreamOutput out) throws IOException {
         out.writeDouble(state.compression);
-        out.writeInt(state.summary.size);
-        if (state.summary.size > 0) {
-            // the iterator of the GroupTree is not empty when the tree is empty...
-            // and returns a null first value :/
-            for (Group group : state.summary) {
-                out.writeDouble(group.centroid);
-                out.writeInt(group.count);
-            }
+        out.writeVInt(state.summary.size());
+        for (IntCursor cursor : state.summary) {
+            final int node = cursor.value;
+            out.writeDouble(state.summary.mean(node));
+            out.writeVLong(state.summary.count(node));
         }
     }
 
     public static TDigestState read(StreamInput in) throws IOException {
         double compression = in.readDouble();
         TDigestState state = new TDigestState(compression);
-        int n = in.readInt();
+        int n = in.readVInt();
         for (int i = 0; i < n; i++) {
-            state.add(in.readDouble(), in.readInt());
+            state.add(in.readDouble(), in.readVInt());
         }
         return state;
     }
-
 }
