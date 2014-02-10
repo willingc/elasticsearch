@@ -231,7 +231,7 @@ public class GroupRedBlackTree extends RedBlackTree {
         return ceiling;
     }
 
-    /** Compute the number of elements and sum of counts for every entry that is before <code>node</code>. */
+    /** Compute the number of elements and sum of counts for every entry that is strictly before <code>node</code>. */
     public void headSum(int node, SizeAndSum sizeAndSum) {
         if (node == NIL) {
             sizeAndSum.size = 0;
@@ -239,8 +239,8 @@ public class GroupRedBlackTree extends RedBlackTree {
             return;
         }
         final int left = left(node);
-        sizeAndSum.size = 1 + aggregatedSizes[left];
-        sizeAndSum.sum = counts[node] + aggregatedCounts[left];
+        sizeAndSum.size = aggregatedSizes[left];
+        sizeAndSum.sum = aggregatedCounts[left];
         for (int n = node, p = parent(node); p != NIL; n = p, p = parent(n)) {
             if (n == right(p)) {
                 final int leftP = left(p);
