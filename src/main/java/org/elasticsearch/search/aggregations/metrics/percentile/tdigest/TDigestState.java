@@ -80,14 +80,12 @@ public class TDigestState {
             summary.addGroup(x, w);
             count = w;
         } else {
-            Iterable<IntCursor> neighbors = summary.tailSet(startNode);
             double minDistance = Double.POSITIVE_INFINITY;
             int lastNeighbor = 0;
             summary.headSum(startNode, sizeAndSum);
             final int headSize = sizeAndSum.size;
             int i = headSize;
-            for (IntCursor cursor : neighbors) {
-                final int node = cursor.value;
+            for (int node = startNode; node != RedBlackTree.NIL; node = summary.nextNode(node)) {
                 double z = Math.abs(summary.mean(node) - x);
                 if (z <= minDistance) {
                     minDistance = z;
@@ -102,11 +100,10 @@ public class TDigestState {
             long sum = sizeAndSum.sum;
             i = headSize;
             double n = 1;
-            for (IntCursor cursor : neighbors) {
+            for (int node = startNode; node != RedBlackTree.NIL; node = summary.nextNode(node)) {
                 if (i > lastNeighbor) {
                     break;
                 }
-                final int node = cursor.value;
                 double z = Math.abs(summary.mean(node) - x);
                 double q = (sum + summary.count(node) / 2.0) / count;
                 double k = 4 * count * q * (1 - q) / compression;
