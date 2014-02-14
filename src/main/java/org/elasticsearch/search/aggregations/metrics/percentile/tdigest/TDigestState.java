@@ -52,7 +52,7 @@ public class TDigestState {
     public TDigestState(double compression) {
         this.compression = compression;
         gen = new Random();
-        summary = new GroupRedBlackTree((int) Math.ceil(100 * compression));
+        summary = new GroupRedBlackTree((int) compression);
     }
 
     /**
