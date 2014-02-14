@@ -87,13 +87,14 @@ public class GroupTreeTests extends ElasticsearchTestCase {
         long sum = 0;
         for (IntCursor cursor : tree) {
             final int node = cursor.value;
-            i++;
-            sum += tree.count(node);
 
             SizeAndSum s = new GroupRedBlackTree.SizeAndSum();
             tree.headSum(node, s);
             assertEquals(i, s.size);
             assertEquals(sum, s.sum);
+
+            i++;
+            sum += tree.count(node);
         }
     }
 }
