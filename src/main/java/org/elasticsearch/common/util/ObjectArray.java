@@ -34,24 +34,4 @@ public interface ObjectArray<T> extends BigArray {
      */
     T set(long index, T value);
 
-    /**
-     * Fill slots between {@code fromIndex} inclusive to {@code toIndex} exclusive with {@code value}
-     */
-    void fill(long fromIndex, long toIndex, Filler<T> filler);
-
-    /**
-     * A filler of objects that is used to fill the array
-     *
-     * @see ObjectArray#fill(long, long, Filler)
-     */
-    public static interface Filler<T> {
-
-        /**
-         * @param index The index/slot of the array to fill
-         * @return      The object to fill the given slot with
-         */
-        T objectFor(long index);
-
-    }
-
 }

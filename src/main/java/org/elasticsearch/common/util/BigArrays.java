@@ -273,15 +273,6 @@ public enum BigArrays {
             return ret;
         }
 
-        @Override
-        public void fill(long fromIndex, long toIndex, Filler<T> filler) {
-            assert indexIsInt(fromIndex);
-            assert indexIsInt(toIndex);
-            for (int i = (int) fromIndex; i < (int) toIndex; i++) {
-                array[i] = filler.objectFor(fromIndex + i);
-            }
-        }
-
     }
 
     /** Allocate a new {@link ByteArray} of the given capacity. */

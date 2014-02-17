@@ -19,7 +19,6 @@
 
 package org.elasticsearch.common.util;
 
-import com.google.common.base.Preconditions;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.cache.recycler.PageCacheRecycler;
@@ -63,34 +62,6 @@ final class BigObjectArray<T> extends AbstractBigArray implements ObjectArray<T>
         final T ret = (T) page[indexInPage];
         page[indexInPage] = value;
         return ret;
-    }
-
-    @Override
-    public void fill(long fromIndex, long toIndex, Filler<T> filler) {
-        Preconditions.checkArgument(fromIndex <= toIndex);
-        final int fromPage = pageIndex(fromIndex);
-        final int toPage = pageIndex(toIndex - 1);
-        if (fromPage == toPage) {
-            for (int i = indexInPage(fromIndex); i < indexInPage(toIndex - 1) + 1; i++) {
-                pages[fromPage][i] = filler.objectFor(fromIndex + i);
-            }
-        } else {
-            long index = fromIndex;
-            for (int i = indexInPage(fromIndex); i < pages[fromPage].length; i++) {
-                index++;
-                pages[fromPage][i] = filler.objectFor(index);
-            }
-            for (int i = fromPage + 1; i < toPage; ++i) {
-                for (int j = 0; i < pages[i].length; j++) {
-                    index++;
-                    pages[i][j] = filler.objectFor(index);
-                }
-            }
-            for (int i = 0; i < indexInPage(toIndex - 1) + 1; i++) {
-                index++;
-                pages[toPage][i] = filler.objectFor(index);
-            }
-        }
     }
 
     @Override
