@@ -68,7 +68,7 @@ public class TDigest extends PercentilesEstimator {
 
         @Override
         public double estimate(int index) {
-            return state == null || state.size() > 0 ? Double.NaN : state.quantile(percents[index] / 100);
+            return state.quantile(percents[index] / 100);
         }
 
         @Override
