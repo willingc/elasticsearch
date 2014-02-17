@@ -28,7 +28,7 @@ public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<Per
         return this;
     }
 
-    public PercentileBuilder executionHint(Percentiles.Estimator estimator) {
+    public PercentileBuilder estimator(Percentiles.Estimator estimator) {
         this.estimator = estimator;
         return this;
     }
@@ -42,7 +42,7 @@ public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<Per
         }
 
         if (estimator != null) {
-            builder.field("execution_hint", estimator.type());
+            builder.field("estimator", estimator.type());
             estimator.paramsToXContent(builder);
         }
     }
