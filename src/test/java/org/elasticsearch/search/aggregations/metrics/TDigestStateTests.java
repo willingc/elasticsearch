@@ -30,6 +30,7 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 import static org.hamcrest.Matchers.lessThan;
@@ -102,7 +103,6 @@ public class TDigestStateTests extends ElasticsearchTestCase {
         };
 
         TDigestState dist = new TDigestState((double) 1000);
-        long t0 = System.nanoTime();
         List<Double> data = Lists.newArrayList();
         for (int i1 = 0; i1 < 100000; i1++) {
             double x = mix.nextDouble();
@@ -121,10 +121,10 @@ public class TDigestStateTests extends ElasticsearchTestCase {
                 double q = z + delta;
                 double cdf = dist.cdf(q);
                 // we also relax the tolerances for repeated values
-                assertEquals(String.format("z=%.1f, q = %.3f, cdf = %.3f", z, q, cdf), z + 0.05, cdf, 0.01);
+                assertEquals(String.format(Locale.ROOT, "z=%.1f, q = %.3f, cdf = %.3f", z, q, cdf), z + 0.05, cdf, 0.01);
 
                 double estimate = dist.quantile(q);
-                assertEquals(String.format("z=%.1f, q = %.3f, cdf = %.3f, estimate = %.3f", z, q, cdf, estimate), Math.rint(q * 10) / 10.0, estimate, 0.001);
+                assertEquals(String.format(Locale.ROOT, "z=%.1f, q = %.3f, cdf = %.3f, estimate = %.3f", z, q, cdf, estimate), Math.rint(q * 10) / 10.0, estimate, 0.001);
             }
         }
     }
