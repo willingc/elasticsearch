@@ -19,6 +19,7 @@
 
 package org.elasticsearch.search.aggregations.metrics.percentile;
 
+import org.apache.lucene.index.AtomicReaderContext;
 import org.elasticsearch.index.fielddata.DoubleValues;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
@@ -36,6 +37,7 @@ import java.io.IOException;
 public class PercentileAggregator extends Aggregator {
 
     private final NumericValuesSource valuesSource;
+    private DoubleValues values;
 
     private PercentilesEstimator estimator;
     private final boolean keyed;
@@ -56,14 +58,12 @@ public class PercentileAggregator extends Aggregator {
     }
 
     @Override
+    public void setNextReader(AtomicReaderContext reader) {
+        values = valuesSource.doubleValues();
+    }
+
+    @Override
     public void collect(int doc, long owningBucketOrdinal) throws IOException {
-        assert valuesSource != null : "if value source is null, collect should never be called";
-
-        DoubleValues values = valuesSource.doubleValues();
-        if (values == null) {
-            return;
-        }
-
         final int valueCount = values.setDocument(doc);
         for (int i = 0; i < valueCount; i++) {
             estimator.offer(values.nextValue(), owningBucketOrdinal);

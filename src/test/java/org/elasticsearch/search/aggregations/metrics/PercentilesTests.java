@@ -89,7 +89,7 @@ public class PercentilesTests extends AbstractNumericTests {
 
         SearchResponse searchResponse = client().prepareSearch("empty_bucket_idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(histogram("histo").field("value").interval(1l).emptyBuckets(true)
+                .addAggregation(histogram("histo").field("value").interval(1l).minDocCount(0)
                         .subAggregation(percentiles("percentiles")
                                 .percentiles(10, 15)
                                 .executionHint(randomHint())))
@@ -98,7 +98,7 @@ public class PercentilesTests extends AbstractNumericTests {
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(2l));
         Histogram histo = searchResponse.getAggregations().get("histo");
         assertThat(histo, notNullValue());
-        Histogram.Bucket bucket = histo.getByKey(1l);
+        Histogram.Bucket bucket = histo.getBucketByKey(1l);
         assertThat(bucket, notNullValue());
 
         Percentiles percentiles = bucket.getAggregations().get("percentiles");
