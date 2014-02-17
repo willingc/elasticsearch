@@ -47,7 +47,7 @@ public class TDigest extends PercentilesEstimator {
 
     @Override
     public Result emptyFlyweight() {
-        return new Flyweight(percents, null);
+        return new Flyweight(percents, new TDigestState(compression));
     }
 
     public static class Flyweight extends Result<TDigest, Flyweight> {
