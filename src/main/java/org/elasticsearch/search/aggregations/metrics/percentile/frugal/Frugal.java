@@ -47,17 +47,14 @@ public class Frugal extends PercentilesEstimator {
         mins.fill(0, mins.size(), Double.POSITIVE_INFINITY);
         maxes = BigArrays.newDoubleArray(estimatedBucketCount);
         maxes.fill(0, maxes.size(), Double.NEGATIVE_INFINITY);
-        steps = new IntArray[percents.length];
-        for (int i = 0; i < steps.length; i++) {
-            steps[i] = BigArrays.newIntArray(estimatedBucketCount);
-            steps[i].fill(0, steps[i].size(), 1);
-        }
         estimates = new DoubleArray[percents.length];
         steps = new IntArray[percents.length];
         signs = new OpenBitSet[percents.length];
-        for (int i = 0; i < estimates.length; i++) {
+        for (int i = 0; i < percents.length; i++) {
             estimates[i] = BigArrays.newDoubleArray(estimatedBucketCount);
+            steps[i] = BigArrays.newIntArray(estimatedBucketCount);
             steps[i].fill(0, steps[i].size(), 1);
+            signs[i] = new OpenBitSet(estimatedBucketCount);
             signs[i].set(0, signs[i].length());
         }
         offered = new OpenBitSet(estimatedBucketCount);
@@ -66,9 +63,16 @@ public class Frugal extends PercentilesEstimator {
 
     @Override
     public void offer(double value, long bucketOrd) {
-
-        BigArrays.grow(mins, bucketOrd + 1);
-        BigArrays.grow(maxes, bucketOrd + 1);
+        if (bucketOrd >= mins.size()) {
+            mins = BigArrays.grow(mins, bucketOrd + 1);
+            maxes = BigArrays.resize(maxes, mins.size());
+            for (int i = 0; i < percents.length; ++i) {
+                estimates[i] = BigArrays.resize(estimates[i], mins.size());
+                final long previousSize = steps[i].size();
+                steps[i] = BigArrays.resize(steps[i], mins.size());
+                steps[i].fill(previousSize, mins.size(), 1);
+            }
+        }
 
         if (!offered.get(bucketOrd)) {
             offered.set(bucketOrd);
@@ -105,7 +109,7 @@ public class Frugal extends PercentilesEstimator {
          */
 
         if (value > estimates[index].get(bucketOrd) && randomValue > (100.0d - percent)) {
-            steps[index].increment(bucketOrd, signs[index].get(bucketOrd) ? 1 : -1);
+            steps[index].increment(bucketOrd, signs[index].get(bucketOrd) ? -1 : 1);
 
             if (steps[index].get(bucketOrd) > 0) {
                 estimates[index].increment(bucketOrd, steps[index].get(bucketOrd));
@@ -113,7 +117,7 @@ public class Frugal extends PercentilesEstimator {
                 estimates[index].increment(bucketOrd, 1);
             }
 
-            signs[index].set(bucketOrd);
+            signs[index].clear(bucketOrd);
 
             //If we overshot, reduce step and reset estimate
             double estimate = estimates[index].get(bucketOrd);
@@ -123,7 +127,7 @@ public class Frugal extends PercentilesEstimator {
             }
 
         } else if (value < estimates[index].get(bucketOrd) && randomValue < (100.0d - percent)) {
-            steps[index].set(bucketOrd, signs[index].get(bucketOrd) ? -1 : 1);
+            steps[index].set(bucketOrd, signs[index].get(bucketOrd) ? 1 : -1);
 
             if (steps[index].get(bucketOrd) > 0) {
                 estimates[index].increment(bucketOrd, -steps[index].get(bucketOrd));
@@ -131,7 +135,7 @@ public class Frugal extends PercentilesEstimator {
                 estimates[index].increment(bucketOrd, -1);
             }
 
-            signs[index].clear(bucketOrd);
+            signs[index].set(bucketOrd);
 
             //If we overshot, reduce step and reset estimate
             double estimate = estimates[index].get(bucketOrd);
@@ -142,7 +146,7 @@ public class Frugal extends PercentilesEstimator {
         }
 
         // Smooth out oscillations
-        if ((estimates[index].get(bucketOrd) - value) * (signs[index].get(bucketOrd) ? 1 : -1)  < 0 && steps[index].get(bucketOrd) > 1) {
+        if ((estimates[index].get(bucketOrd) - value) * (signs[index].get(bucketOrd) ? -1 : 1)  < 0 && steps[index].get(bucketOrd) > 1) {
             steps[index].set(bucketOrd, 1);
         }
 
