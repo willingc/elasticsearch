@@ -167,7 +167,7 @@ public class Frugal extends PercentilesEstimator {
 
     @Override
     public Flyweight emptyFlyweight() {
-        return new Flyweight();
+        return new Flyweight(percents, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY);
     }
 
     public static class Flyweight extends Result<Frugal, Flyweight> {

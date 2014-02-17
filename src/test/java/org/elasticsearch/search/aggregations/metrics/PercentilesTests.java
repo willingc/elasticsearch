@@ -114,7 +114,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("value")
-                        .percentiles(10, 15)
+                        .percentiles(0, 10, 15, 100)
                         .estimator(randomEstimator()))
                 .execute().actionGet();
 
@@ -123,8 +123,10 @@ public class PercentilesTests extends AbstractNumericTests {
         Percentiles percentiles = searchResponse.getAggregations().get("percentiles");
         assertThat(percentiles, notNullValue());
         assertThat(percentiles.getName(), equalTo("percentiles"));
+        assertThat(percentiles.percentile(0), equalTo(Double.NaN));
         assertThat(percentiles.percentile(10), equalTo(Double.NaN));
         assertThat(percentiles.percentile(15), equalTo(Double.NaN));
+        assertThat(percentiles.percentile(100), equalTo(Double.NaN));
     }
 
     @Test
