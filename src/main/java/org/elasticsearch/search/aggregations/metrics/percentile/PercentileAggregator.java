@@ -21,19 +21,20 @@ package org.elasticsearch.search.aggregations.metrics.percentile;
 import org.apache.lucene.index.AtomicReaderContext;
 import org.elasticsearch.index.fielddata.DoubleValues;
 import org.elasticsearch.search.aggregations.Aggregator;
-import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.InternalAggregation;
+import org.elasticsearch.search.aggregations.metrics.MetricsAggregator;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValueSourceAggregatorFactory;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
 import org.elasticsearch.search.aggregations.support.numeric.NumericValuesSource;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 /**
  *
  */
-public class PercentileAggregator extends Aggregator {
+public class PercentileAggregator extends MetricsAggregator.MultiValue {
 
     private final NumericValuesSource valuesSource;
     private DoubleValues values;
@@ -44,8 +45,7 @@ public class PercentileAggregator extends Aggregator {
 
     public PercentileAggregator(String name, long estimatedBucketsCount, NumericValuesSource valuesSource, AggregationContext context,
                                 Aggregator parent, PercentilesEstimator estimator, boolean keyed) {
-
-        super(name, BucketAggregationMode.MULTI_BUCKETS, AggregatorFactories.EMPTY, estimatedBucketsCount, context, parent);
+        super(name, estimatedBucketsCount, context, parent);
         this.valuesSource = valuesSource;
         this.keyed = keyed;
         this.estimator = estimator;
@@ -67,6 +67,16 @@ public class PercentileAggregator extends Aggregator {
         for (int i = 0; i < valueCount; i++) {
             estimator.offer(values.nextValue(), owningBucketOrdinal);
         }
+    }
+
+    @Override
+    public boolean hasMetric(String name) {
+        return Arrays.binarySearch(estimator.percents(), Double.parseDouble(name)) >= 0;
+    }
+
+    @Override
+    public double metric(String name, long owningBucketOrd) {
+        return estimator.flyweight(owningBucketOrd).estimate(Double.parseDouble(name));
     }
 
     @Override

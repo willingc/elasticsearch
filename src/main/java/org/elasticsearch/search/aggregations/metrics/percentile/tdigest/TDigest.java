@@ -61,6 +61,9 @@ public class TDigest extends PercentilesEstimator {
 
     @Override
     public Result flyweight(long bucketOrd) {
+        if (bucketOrd >= states.size() || states.get(bucketOrd) == null) {
+            return emptyFlyweight();
+        }
         return new Flyweight(percents, states.get(bucketOrd));
     }
 

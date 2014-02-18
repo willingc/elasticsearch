@@ -22,6 +22,7 @@ import com.google.common.collect.Lists;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
+import org.elasticsearch.search.aggregations.bucket.histogram.Histogram.Order;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
 import org.junit.Test;
@@ -347,6 +348,33 @@ public class PercentilesTests extends AbstractNumericTests {
 
         final Percentiles percentiles = searchResponse.getAggregations().get("percentiles");
         assertConsistent(pcts, percentiles, minValues - 1, maxValues - 1);
+    }
+
+    @Test
+    public void testOrderBySubAggregation() {
+        boolean asc = randomBoolean();
+        SearchResponse searchResponse = client().prepareSearch("idx")
+                .setQuery(matchAllQuery())
+                .addAggregation(
+                        histogram("histo").field("value").interval(2l)
+                            .subAggregation(percentiles("percentiles").percentiles(99))
+                            .order(Order.aggregation("percentiles", "99", asc)))
+                .execute().actionGet();
+
+        assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
+
+        Histogram histo = searchResponse.getAggregations().get("histo");
+        double previous = asc ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
+        for (Histogram.Bucket bucket : histo.getBuckets()) {
+            Percentiles percentiles = bucket.getAggregations().get("percentiles");
+            double p99 = percentiles.percentile(99);
+            if (asc) {
+                assertThat(p99, greaterThanOrEqualTo(previous));
+            } else {
+                assertThat(p99, lessThanOrEqualTo(previous));
+            }
+            previous = p99;
+        }
     }
 
 }
