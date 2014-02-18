@@ -103,10 +103,14 @@ public class PercentileParser implements Aggregator.Parser {
                     percents = values.toArray();
                     // Some impls rely on the fact that percents are sorted
                     Arrays.sort(percents);
+                } else {
+                    throw new SearchParseException(context, "Unknown key for a " + token + " in [" + aggregationName + "]: [" + currentFieldName + "].");
                 }
             } else if (token == XContentParser.Token.START_OBJECT) {
                 if ("params".equals(currentFieldName)) {
                     scriptParams = parser.map();
+                } else {
+                    throw new SearchParseException(context, "Unknown key for a " + token + " in [" + aggregationName + "]: [" + currentFieldName + "].");
                 }
             } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
                 if ("script_values_sorted".equals(currentFieldName) || "scriptValuesSorted".equals(currentFieldName)) {
@@ -124,6 +128,8 @@ public class PercentileParser implements Aggregator.Parser {
                     settings = new HashMap<String, Object>();
                 }
                 settings.put(currentFieldName, parser.numberValue());
+            } else {
+                throw new SearchParseException(context, "Unexpected token " + token + " in [" + aggregationName + "].");
             }
         }
 
