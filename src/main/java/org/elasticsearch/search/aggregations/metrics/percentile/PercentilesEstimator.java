@@ -60,8 +60,6 @@ public abstract class PercentilesEstimator {
 
     public abstract Result emptyFlyweight();
 
-    public abstract long ramBytesUsed();
-
     /**
      * Responsible for merging multiple estimators into a single one.
      */

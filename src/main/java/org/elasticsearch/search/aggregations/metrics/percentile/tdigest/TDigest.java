@@ -42,10 +42,6 @@ public class TDigest extends PercentilesEstimator {
         return new Flyweight(percents, states.get(bucketOrd));
     }
 
-    public long ramBytesUsed() {
-        return -1;
-    }
-
     @Override
     public Result emptyFlyweight() {
         return new Flyweight(percents, new TDigestState(compression));

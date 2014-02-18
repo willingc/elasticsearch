@@ -288,11 +288,6 @@ public class Frugal extends PercentilesEstimator {
         }
     }
 
-    @Override
-    public long ramBytesUsed() {
-        return -1; // todo implement
-    }
-
     public static class Factory implements PercentilesEstimator.Factory<Frugal> {
 
         @Override
