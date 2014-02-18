@@ -77,6 +77,13 @@ public class PercentilesTests extends AbstractNumericTests {
             assertThat(percentile.getPercent(), equalTo(pcts[i]));
             assertThat(percentile.getValue(), greaterThanOrEqualTo((double) minValue));
             assertThat(percentile.getValue(), lessThanOrEqualTo((double) maxValue));
+
+            if (percentile.getPercent() == 0) {
+                assertThat(percentile.getValue(), equalTo((double) minValue));
+            }
+            if (percentile.getPercent() == 100) {
+                assertThat(percentile.getValue(), equalTo((double) maxValue));
+            }
         }
 
         for (int i = 1; i < percentileList.size(); ++i) {
