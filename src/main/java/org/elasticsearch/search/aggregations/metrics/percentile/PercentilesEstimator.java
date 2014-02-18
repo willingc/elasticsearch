@@ -23,6 +23,7 @@ import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
+import org.elasticsearch.common.lease.Releasable;
 import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigest;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 
@@ -32,7 +33,7 @@ import java.util.Arrays;
 /**
 *
 */
-public abstract class PercentilesEstimator {
+public abstract class PercentilesEstimator implements Releasable {
 
     protected double[] percents;
 

@@ -83,6 +83,10 @@ public class PercentileAggregator extends Aggregator {
         return new InternalPercentiles(name, estimator.emptyFlyweight(), keyed);
     }
 
+    @Override
+    protected void doRelease() {
+        estimator.release();
+    }
 
     public static class Factory extends ValueSourceAggregatorFactory.LeafOnly<NumericValuesSource> {
 

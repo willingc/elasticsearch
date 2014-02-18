@@ -1,5 +1,6 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
+import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.BigArrays;
@@ -24,11 +25,14 @@ public class TDigest extends PercentilesEstimator {
         this.compression = compression;
     }
 
+    @Override
+    public boolean release() throws ElasticsearchException {
+        states.release();
+        return true;
+    }
+
     public void offer(double value, long bucketOrd) {
-        if (bucketOrd >= states.size()) {
-            long overSize = BigArrays.overSize(bucketOrd + 1);
-            states = BigArrays.resize(states, overSize);
-        }
+        states = BigArrays.grow(states, bucketOrd + 1);
         TDigestState state = states.get(bucketOrd);
         if (state == null) {
             state = new TDigestState(compression);
