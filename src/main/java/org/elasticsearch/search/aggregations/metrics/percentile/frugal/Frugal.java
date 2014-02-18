@@ -9,7 +9,6 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.common.util.DoubleArray;
-import org.elasticsearch.common.util.IntArray;
 import org.elasticsearch.search.aggregations.metrics.percentile.PercentilesEstimator;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 
@@ -25,9 +24,8 @@ public class Frugal extends PercentilesEstimator {
     private DoubleArray mins;
     private DoubleArray maxes;
     private DoubleArray[] estimates;  // Current estimate of percentile
-    private IntArray[] steps;        // Current step value for frugal-2u
-    private OpenBitSet[] signs;   // Direction of last movement
-    private OpenBitSet offered;
+    private DoubleArray[] steps;      // Current step value for frugal-2u
+    private OpenBitSet[] signs;       // Direction of last movement
 
     /**
      * Instantiate a new FrugalProvider
@@ -47,17 +45,20 @@ public class Frugal extends PercentilesEstimator {
         super(percents);
         final PageCacheRecycler recycler = context.pageCacheRecycler();
         mins = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
+        mins.fill(0, mins.size(), Double.NaN);
         maxes = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
         estimates = new DoubleArray[percents.length];
-        steps = new IntArray[percents.length];
+        steps = new DoubleArray[percents.length];
         signs = new OpenBitSet[percents.length];
         for (int i = 0; i < percents.length; i++) {
+            if (percents[i] == 0 || percents[i] == 100) {
+                continue;
+            }
             estimates[i] = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
-            steps[i] = BigArrays.newIntArray(estimatedBucketCount, recycler, false);
+            steps[i] = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
             steps[i].fill(0, steps[i].size(), 1);
             signs[i] = new OpenBitSet(estimatedBucketCount);
         }
-        offered = new OpenBitSet(estimatedBucketCount);
         this.rand = ThreadLocalRandom.current();
     }
 
@@ -66,18 +67,23 @@ public class Frugal extends PercentilesEstimator {
         if (bucketOrd >= mins.size()) {
             final long originalSize = mins.size();
             mins = BigArrays.grow(mins, bucketOrd + 1);
+            mins.fill(originalSize, mins.size(), Double.NaN);
             maxes = BigArrays.resize(maxes, mins.size());
             for (int i = 0; i < percents.length; ++i) {
+                if (estimates[i] == null) {
+                    continue;
+                }
                 estimates[i] = BigArrays.resize(estimates[i], mins.size());
                 steps[i] = BigArrays.resize(steps[i], mins.size());
                 steps[i].fill(originalSize, mins.size(), 1);
             }
         }
 
-        if (!offered.get(bucketOrd)) {
-            offered.set(bucketOrd);
+        if (Double.isNaN(mins.get(bucketOrd))) {
             for (int i = 0; i < estimates.length; i++) {
-                estimates[i].set(bucketOrd, value);
+                if (estimates[i] != null) {
+                    estimates[i].set(bucketOrd, value);
+                }
             }
             mins.set(bucketOrd, value);
             maxes.set(bucketOrd, value);
@@ -106,59 +112,61 @@ public class Frugal extends PercentilesEstimator {
          * step boost but still a small boost to estimate
          */
 
-        if (value > estimates[index].get(bucketOrd) && randomValue > (100.0d - percent)) {
-            steps[index].increment(bucketOrd, signs[index].get(bucketOrd) ? -1 : 1);
-
-            if (steps[index].get(bucketOrd) > 0) {
-                estimates[index].increment(bucketOrd, steps[index].get(bucketOrd));
-            } else {
-                estimates[index].increment(bucketOrd, 1);
-            }
-
-            signs[index].clear(bucketOrd);
-
-            //If we overshot, reduce step and reset estimate
-            double estimate = estimates[index].get(bucketOrd);
+        double step = steps[index].get(bucketOrd);
+        double estimate = estimates[index].get(bucketOrd);
+        int sign = signs[index].get(bucketOrd) ? -1 : 1;
+        if (value > estimate && randomValue > (100 - percent)) {
+            step += sign;
+            estimate += step > 0 ? step : 1;
+            sign = 1;
+            // If we overshot, reduce step and reset estimate
             if (estimate > value) {
-                steps[index].set(bucketOrd, (int) (value - estimate));
-                estimates[index].set(bucketOrd, value);
+                step -= (estimate - value);
+                estimate = value;
             }
-
-        } else if (value < estimates[index].get(bucketOrd) && randomValue < (100.0d - percent)) {
-            steps[index].set(bucketOrd, signs[index].get(bucketOrd) ? 1 : -1);
-
-            if (steps[index].get(bucketOrd) > 0) {
-                estimates[index].increment(bucketOrd, -steps[index].get(bucketOrd));
-            } else {
-                estimates[index].increment(bucketOrd, -1);
-            }
-
-            signs[index].set(bucketOrd);
-
-            //If we overshot, reduce step and reset estimate
-            double estimate = estimates[index].get(bucketOrd);
+        } else if (value < estimate && randomValue > percent) {
+            step -= sign;
+            estimate -= step > 0 ? step : 1;
+            sign = -1;
+            // If we overshot, reduce step and reset estimate
             if (estimate < value) {
-                steps[index].set(bucketOrd, (int) (estimate - value));
-                estimates[index].set(bucketOrd, value);
+                step -= (value - estimate);
+                estimate = value;
             }
         }
 
         // Smooth out oscillations
-        if ((estimates[index].get(bucketOrd) - value) * (signs[index].get(bucketOrd) ? -1 : 1)  < 0 && steps[index].get(bucketOrd) > 1) {
-            steps[index].set(bucketOrd, 1);
+        if ((estimate - value) * sign < 0 && step > 1) {
+            step = 1;
         }
 
-        // Prevent step from growing more negative than necessary
-        if (steps[index].get(bucketOrd) <= -Integer.MAX_VALUE + 1000) {
-            steps[index].set(bucketOrd, -Integer.MAX_VALUE + 1000);
+        steps[index].set(bucketOrd, step);
+        estimates[index].set(bucketOrd, estimate);
+        if (sign == -1) {
+            signs[index].set(bucketOrd);
+        } else {
+            signs[index].clear(bucketOrd);
+        }
+    }
+
+    private double estimate(int index, long bucketOrd) {
+        if (percents[index] == 0) {
+            return mins.get(bucketOrd);
+        } else if (percents[index] == 100) {
+            return maxes.get(bucketOrd);
+        } else {
+            return estimates[index].get(bucketOrd);
         }
     }
 
     @Override
     public Flyweight flyweight(long bucketOrd) {
+        if (bucketOrd >= mins.size() || Double.isNaN(mins.get(bucketOrd))) {
+            return emptyFlyweight();
+        }
         double[] bucketEstimates = new double[percents.length];
         for (int i = 0; i < estimates.length ; i++) {
-            bucketEstimates[i] = estimates[i].get(bucketOrd);
+            bucketEstimates[i] = estimate(i, bucketOrd);
         }
         return new Flyweight(percents, bucketEstimates, mins.get(bucketOrd), maxes.get(bucketOrd));
     }
@@ -170,8 +178,6 @@ public class Frugal extends PercentilesEstimator {
 
     public static class Flyweight extends Result<Frugal, Flyweight> {
 
-        private double min;
-        private double max;
         private double[] estimates;
 
         Flyweight() {
@@ -180,8 +186,6 @@ public class Frugal extends PercentilesEstimator {
         Flyweight(double[] percents, double[] estimates, double min, double max) {
             super(percents);
             this.estimates = estimates;
-            this.min = min;
-            this.max = max;
         }
 
         @Override
@@ -194,13 +198,7 @@ public class Frugal extends PercentilesEstimator {
             if (estimates == null) {
                 return Double.NaN;
             }
-            if (percents[index] == 0) {
-                return min;
-            } else if (percents[index] == 100) {
-                return max;
-            } else {
-                return Math.max(Math.min(estimates[index], max), min);
-            }
+            return estimates[index];
         }
 
         @Override
@@ -219,11 +217,6 @@ public class Frugal extends PercentilesEstimator {
             this.percents = new double[in.readInt()];
             this.estimates = in.readBoolean() ? new double[this.percents.length] : null;
 
-            if (estimates != null) {
-                min = in.readDouble();
-                max = in.readDouble();
-            }
-
             for (int i = 0 ; i < percents.length; ++i) {
                 percents[i] = in.readDouble();
                 if (estimates != null) {
@@ -236,10 +229,6 @@ public class Frugal extends PercentilesEstimator {
         public void writeTo(StreamOutput out) throws IOException {
             out.writeInt(percents.length);
             out.writeBoolean(estimates != null);
-            if (estimates != null) {
-                out.writeDouble(min);
-                out.writeDouble(max);
-            }
             for (int i = 0 ; i < percents.length; ++i) {
                 out.writeDouble(percents[i]);
                 if (estimates != null) {
@@ -262,9 +251,6 @@ public class Frugal extends PercentilesEstimator {
                 if (flyweight.estimates == null) {
                     return;
                 }
-
-                min = Math.min(min, flyweight.min);
-                max = Math.max(max, flyweight.max);
 
                 if (merging == null) {
                     merging = new DoubleArrayList(expectedMerges * percents.length);
@@ -314,5 +300,4 @@ public class Frugal extends PercentilesEstimator {
             return new Frugal(percents, estimatedBucketCount, context);
         }
     }
-
 }
