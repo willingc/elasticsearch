@@ -5,6 +5,7 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.ObjectArray;
 import org.elasticsearch.search.aggregations.metrics.percentile.PercentilesEstimator;
+import org.elasticsearch.search.aggregations.support.AggregationContext;
 
 import java.io.IOException;
 import java.util.Map;
@@ -17,9 +18,9 @@ public class TDigest extends PercentilesEstimator {
     public ObjectArray<TDigestState> states;
     private final double compression;
 
-    public TDigest(double[] percents, double compression, long estimatedBucketsCount) {
+    public TDigest(double[] percents, double compression, long estimatedBucketsCount, AggregationContext context) {
         super(percents);
-        states = BigArrays.newObjectArray(estimatedBucketsCount);
+        states = BigArrays.newObjectArray(estimatedBucketsCount, context.pageCacheRecycler());
         this.compression = compression;
     }
 
@@ -139,8 +140,8 @@ public class TDigest extends PercentilesEstimator {
             this.compression = compression;
         }
 
-        public TDigest create(double[] percents, long estimtedBucketCount) {
-            return new TDigest(percents, compression, estimtedBucketCount);
+        public TDigest create(double[] percents, long estimtedBucketCount, AggregationContext context) {
+            return new TDigest(percents, compression, estimtedBucketCount, context);
         }
     }
 

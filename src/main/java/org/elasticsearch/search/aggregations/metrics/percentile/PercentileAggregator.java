@@ -100,12 +100,12 @@ public class PercentileAggregator extends Aggregator {
 
         @Override
         protected Aggregator createUnmapped(AggregationContext aggregationContext, Aggregator parent) {
-            return new PercentileAggregator(name, 0, null, aggregationContext, parent, estimatorFactory.create(percents, 0), keyed);
+            return new PercentileAggregator(name, 0, null, aggregationContext, parent, estimatorFactory.create(percents, 0, aggregationContext), keyed);
         }
 
         @Override
         protected Aggregator create(NumericValuesSource valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
-            PercentilesEstimator estimator = estimatorFactory.create(percents, expectedBucketsCount);
+            PercentilesEstimator estimator = estimatorFactory.create(percents, expectedBucketsCount, aggregationContext);
             return new PercentileAggregator(name, expectedBucketsCount, valuesSource, aggregationContext, parent, estimator, keyed);
         }
     }

@@ -25,6 +25,7 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
 import org.elasticsearch.search.aggregations.metrics.percentile.frugal.Frugal;
 import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigest;
+import org.elasticsearch.search.aggregations.support.AggregationContext;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -96,7 +97,7 @@ public abstract class PercentilesEstimator {
 
     public static interface Factory<E extends PercentilesEstimator> {
 
-        public abstract E create(double[] percents, long estimatedBucketCount);
+        public abstract E create(double[] percents, long estimatedBucketCount, AggregationContext context);
 
     }
 

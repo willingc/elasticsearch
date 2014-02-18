@@ -3,6 +3,7 @@ package org.elasticsearch.search.aggregations.metrics.percentile.frugal;
 import com.carrotsearch.hppc.DoubleArrayList;
 import jsr166y.ThreadLocalRandom;
 import org.apache.lucene.util.OpenBitSet;
+import org.elasticsearch.cache.recycler.PageCacheRecycler;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.BigArrays;
@@ -10,6 +11,7 @@ import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.common.util.DoubleArray;
 import org.elasticsearch.common.util.IntArray;
 import org.elasticsearch.search.aggregations.metrics.percentile.PercentilesEstimator;
+import org.elasticsearch.search.aggregations.support.AggregationContext;
 
 import java.io.IOException;
 import java.util.Random;
@@ -41,21 +43,19 @@ public class Frugal extends PercentilesEstimator {
      *
      * @param percents how many intervals to calculate quantiles for
      */
-    public Frugal(final double[] percents, long estimatedBucketCount) {
+    public Frugal(final double[] percents, long estimatedBucketCount, AggregationContext context) {
         super(percents);
-        mins = BigArrays.newDoubleArray(estimatedBucketCount);
-        mins.fill(0, mins.size(), Double.POSITIVE_INFINITY);
-        maxes = BigArrays.newDoubleArray(estimatedBucketCount);
-        maxes.fill(0, maxes.size(), Double.NEGATIVE_INFINITY);
+        final PageCacheRecycler recycler = context.pageCacheRecycler();
+        mins = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
+        maxes = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
         estimates = new DoubleArray[percents.length];
         steps = new IntArray[percents.length];
         signs = new OpenBitSet[percents.length];
         for (int i = 0; i < percents.length; i++) {
-            estimates[i] = BigArrays.newDoubleArray(estimatedBucketCount);
-            steps[i] = BigArrays.newIntArray(estimatedBucketCount);
+            estimates[i] = BigArrays.newDoubleArray(estimatedBucketCount, recycler, false);
+            steps[i] = BigArrays.newIntArray(estimatedBucketCount, recycler, false);
             steps[i].fill(0, steps[i].size(), 1);
             signs[i] = new OpenBitSet(estimatedBucketCount);
-            signs[i].set(0, signs[i].length());
         }
         offered = new OpenBitSet(estimatedBucketCount);
         this.rand = ThreadLocalRandom.current();
@@ -64,33 +64,31 @@ public class Frugal extends PercentilesEstimator {
     @Override
     public void offer(double value, long bucketOrd) {
         if (bucketOrd >= mins.size()) {
+            final long originalSize = mins.size();
             mins = BigArrays.grow(mins, bucketOrd + 1);
             maxes = BigArrays.resize(maxes, mins.size());
             for (int i = 0; i < percents.length; ++i) {
                 estimates[i] = BigArrays.resize(estimates[i], mins.size());
-                final long previousSize = steps[i].size();
                 steps[i] = BigArrays.resize(steps[i], mins.size());
-                steps[i].fill(previousSize, mins.size(), 1);
+                steps[i].fill(originalSize, mins.size(), 1);
             }
         }
 
         if (!offered.get(bucketOrd)) {
             offered.set(bucketOrd);
             for (int i = 0; i < estimates.length; i++) {
-                BigArrays.grow(estimates[i], bucketOrd + 1);
                 estimates[i].set(bucketOrd, value);
             }
             mins.set(bucketOrd, value);
             maxes.set(bucketOrd, value);
-            return;
-        }
+        } else {
+            mins.set(bucketOrd, Math.min(value, mins.get(bucketOrd)));
+            maxes.set(bucketOrd, Math.max(value, maxes.get(bucketOrd)));
 
-        mins.set(bucketOrd, Math.min(value, mins.get(bucketOrd)));
-        maxes.set(bucketOrd, Math.max(value, maxes.get(bucketOrd)));
-
-        final double randomValue = rand.nextDouble() * 100;
-        for (int i = 0 ; i < percents.length; ++i) {
-            offerTo(bucketOrd, i, value, randomValue);
+            final double randomValue = rand.nextDouble() * 100;
+            for (int i = 0 ; i < percents.length; ++i) {
+                offerTo(bucketOrd, i, value, randomValue);
+            }
         }
     }
 
@@ -312,8 +310,8 @@ public class Frugal extends PercentilesEstimator {
     public static class Factory implements PercentilesEstimator.Factory<Frugal> {
 
         @Override
-        public Frugal create(double[] percents, long estimatedBucketCount) {
-            return new Frugal(percents, estimatedBucketCount);
+        public Frugal create(double[] percents, long estimatedBucketCount, AggregationContext context) {
+            return new Frugal(percents, estimatedBucketCount, context);
         }
     }
 
