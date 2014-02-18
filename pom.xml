@@ -1100,6 +1100,9 @@
                         <exclude>src/main/java/org/elasticsearch/common/lucene/search/XFilteredQuery.java</exclude>
                         <exclude>src/main/java/org/apache/lucene/queryparser/XSimpleQueryParser.java</exclude>
                         <exclude>src/main/java/org/apache/lucene/**/X*.java</exclude>
+                        <!-- t-digest -->
+                        <exclude>src/main/java/org/elasticsearch/search/aggregations/metrics/percentile/tdigest/TDigestState.java</exclude>
+                        <exclude>src/test/java/org/elasticsearch/search/aggregations/metrics/GroupTree.java</exclude>
                     </excludes>
                 </configuration>
                 <!--  We can't run by default since the package is broken with java 1.6
