@@ -20,6 +20,7 @@ package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 import com.carrotsearch.hppc.cursors.IntCursor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.GroupRedBlackTree.SizeAndSum;
@@ -261,6 +262,9 @@ public class TDigestState {
      * @return The minimum value x such that we think that the proportion of samples is <= x is q.
      */
     public double quantile(double q) {
+        if (q < 0 || q > 1) {
+            throw new ElasticsearchIllegalArgumentException("q should be in [0,1], got " + q);
+        }
         GroupRedBlackTree values = summary;
         if (values.size() == 0) {
             return Double.NaN;
@@ -268,46 +272,49 @@ public class TDigestState {
             return values.mean(values.root());
         }
 
-        Iterator<IntCursor> it = values.iterator();
-        int a = it.next().value;
-        int b = it.next().value;
-        if (!it.hasNext()) {
-            // both a and b have to have just a single element
-            double diff = (summary.mean(b) - summary.mean(a)) / 2;
-            if (q > 0.75) {
-                return summary.mean(b) + diff * (4 * q - 3);
-            } else {
-                return summary.mean(a) + diff * (4 * q - 1);
-            }
-        } else {
-            q *= count;
-            double right = (summary.mean(b) - summary.mean(a)) / 2;
-            // we have nothing else to go on so make left hanging width same as right to start
-            double left = right;
+        // if values were stored in a sorted array, index would be the offset we are interested in
+        final double index = q * (count - 1);
 
-            if (q <= summary.count(a)) {
-                return summary.mean(a) + left * (2 * q - summary.count(a)) / summary.count(a);
-            } else {
-                double t = summary.count(a);
-                while (it.hasNext()) {
-                    if (t + summary.count(b) / 2 >= q) {
-                        // left of b
-                        return summary.mean(b) - left * 2 * (q - t) / summary.count(b);
-                    } else if (t + summary.count(b) >= q) {
-                        // right of b but left of the left-most thing beyond
-                        return summary.mean(b) + right * 2 * (q - t - summary.count(b) / 2.0) / summary.count(b);
+        double previousMean = Double.NaN, previousIndex = 0;
+        long total = 0;
+        int next;
+        Iterator<IntCursor> it = centroids().iterator();
+        while (true) {
+            next = it.next().value;
+            final double nextIndex = total + (values.count(next) - 1.0) / 2;
+            if (nextIndex >= index) {
+                if (Double.isNaN(previousMean)) {
+                    // special case 1: the index we are interested in is before the 1st centroid
+                    if (nextIndex == previousIndex) {
+                        return values.mean(next);
                     }
-                    t += summary.count(b);
-
-                    a = b;
-                    b = it.next().value;
-                    left = right;
-                    right = (summary.mean(b) - summary.mean(a)) / 2;
+                    // assume values grow linearly between index previousIndex=0 and nextIndex2
+                    int next2 = it.next().value;
+                    final double nextIndex2 = total + values.count(next) + (values.count(next2) - 1.0) / 2;
+                    previousMean = (nextIndex2 * values.mean(next) - nextIndex * values.mean(next2)) / (nextIndex2 - nextIndex);
                 }
-                // shouldn't be possible but we have an answer anyway
-                return summary.mean(b) + right;
+                // common case: we found two centroids previous and next so that the desired quantile is
+                // after 'previous' but before 'next'
+                return quantile(previousIndex, index, nextIndex, previousMean, values.mean(next));
+            } else if (!it.hasNext()) {
+                // special case 2: the index we are interested in is beyond the last centroid
+                // again, assume values grow linearly between index previousIndex and (count - 1)
+                // which is the highest possible index
+                final double nextIndex2 = count - 1;
+                final double nextMean2 = (values.mean(next) * (nextIndex2 - previousIndex) - previousMean * (nextIndex2 - nextIndex)) / (nextIndex - previousIndex);
+                return quantile(nextIndex, index, nextIndex2, values.mean(next), nextMean2);
             }
+            total += values.count(next);
+            previousMean = values.mean(next);
+            previousIndex = nextIndex;
         }
+    }
+
+    private static double quantile(double previousIndex, double index, double nextIndex, double previousMean, double nextMean) {
+        final double delta = nextIndex - previousIndex;
+        final double previousWeight = (nextIndex - index) / delta;
+        final double nextWeight = (index - previousIndex) / delta;
+        return previousMean * previousWeight + nextMean * nextWeight;
     }
 
     public int centroidCount() {
