@@ -40,14 +40,6 @@ import static org.hamcrest.Matchers.*;
  */
 public class PercentilesTests extends AbstractNumericTests {
 
-    private static Percentiles.Estimator randomEstimator() {
-        final Percentiles.Estimator estimator = randomFrom(Arrays.asList(
-                Percentiles.Estimator.frugal(),
-                Percentiles.Estimator.tDigest()));
-        Loggers.getLogger(PercentilesTests.class).info("Using estimator={}", estimator);
-        return estimator;
-    }
-
     private static double[] randomPercentiles() {
         final int length = randomIntBetween(1, 20);
         final double[] percentiles = new double[length];
@@ -98,8 +90,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(histogram("histo").field("value").interval(1l).minDocCount(0)
                         .subAggregation(percentiles("percentiles")
-                                .percentiles(10, 15)
-                                .estimator(randomEstimator())))
+                                .percentiles(10, 15)))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(2l));
@@ -121,8 +112,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("value")
-                        .percentiles(0, 10, 15, 100)
-                        .estimator(randomEstimator()))
+                        .percentiles(0, 10, 15, 100))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(0l));
@@ -143,8 +133,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("value")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -160,8 +149,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("value")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -177,8 +165,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("value").script("_value - 1")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -194,8 +181,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("value").script("_value - dec").param("dec", 1)
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -211,8 +197,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("values")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -228,8 +213,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("values").script("_value - 1")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -245,8 +229,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("values").script("_value * -1")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -262,8 +245,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .field("values").script("_value - dec").param("dec", 1)
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -279,8 +261,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .script("doc['value'].value")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -296,8 +277,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .script("doc['value'].value - dec").param("dec", 1)
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -313,8 +293,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .script("doc['value'].value - dec").param("dec", 1)
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -330,8 +309,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .script("doc['values'].values")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -347,8 +325,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .script("doc['values'].values")
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));
@@ -364,8 +341,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(percentiles("percentiles")
                         .script("List values = doc['values'].values; double[] res = new double[values.length]; for (int i = 0; i < res.length; i++) { res[i] = values.get(i) - dec; }; return res;").param("dec", 1)
-                        .percentiles(pcts)
-                        .estimator(randomEstimator()))
+                        .percentiles(pcts))
                 .execute().actionGet();
 
         assertThat(searchResponse.getHits().getTotalHits(), equalTo(10l));

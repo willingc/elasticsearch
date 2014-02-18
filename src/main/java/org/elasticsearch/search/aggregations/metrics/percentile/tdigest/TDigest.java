@@ -13,7 +13,7 @@ import java.util.Map;
 
 public class TDigest extends PercentilesEstimator {
 
-    public final static byte ID = 1;
+    public final static byte ID = 0;
 
     public ObjectArray<TDigestState> states;
     private final double compression;

@@ -19,7 +19,6 @@
 
 package org.elasticsearch.benchmark.search.aggregations;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
@@ -35,7 +34,6 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Estimator;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
 
 import java.util.*;
@@ -53,9 +51,6 @@ import static org.elasticsearch.search.aggregations.AggregationBuilders.percenti
 public class PercentileAggregationSearchBenchmark {
 
     private static final int AMPLITUDE = 10000;
-    private static final Map<String, Percentiles.Estimator> ESTIMATORS = ImmutableMap.of(
-            "frugal", Estimator.frugal(),
-            "tdigest", Estimator.tDigest());
     private static final int NUM_DOCS = (int) SizeValue.parseSizeValue("1m").singles();
     private static final int BATCH = 100;
     private static final String CLUSTER_NAME = PercentileAggregationSearchBenchmark.class.getSimpleName();
@@ -181,36 +176,32 @@ public class PercentileAggregationSearchBenchmark {
             }
             System.out.println("Expected percentiles: " + percentiles);
             System.out.println();
-            for (Map.Entry<String, Percentiles.Estimator> estimator : ESTIMATORS.entrySet()) {
-                SearchResponse resp = client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").estimator(estimator.getValue()).field("v").percentiles(PERCENTILES)).execute().actionGet();
-                Percentiles pcts = resp.getAggregations().get("pcts");
-                Map<Double, Double> asMap = Maps.newLinkedHashMap();
-                double sumOfErrorSquares = 0;
-                for (Percentile percentile : pcts) {
-                    asMap.put(percentile.getPercent(), percentile.getValue());
-                    double error = percentile.getValue() - percentiles.get(percentile.getPercent());
-                    sumOfErrorSquares += error * error;
-                }
-                System.out.println(estimator.getKey() + ": " + asMap);
-                System.out.println("Sum of error squares: " + sumOfErrorSquares);
-                System.out.println();
+            SearchResponse resp = client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").field("v").percentiles(PERCENTILES)).execute().actionGet();
+            Percentiles pcts = resp.getAggregations().get("pcts");
+            Map<Double, Double> asMap = Maps.newLinkedHashMap();
+            double sumOfErrorSquares = 0;
+            for (Percentile percentile : pcts) {
+                asMap.put(percentile.getPercent(), percentile.getValue());
+                double error = percentile.getValue() - percentiles.get(percentile.getPercent());
+                sumOfErrorSquares += error * error;
             }
+            System.out.println("Percentiles: " + asMap);
+            System.out.println("Sum of error squares: " + sumOfErrorSquares);
+            System.out.println();
         }
         
         System.out.println("## Performance");
         for (int i = 0; i < 3; ++i) {
             for (Distribution d : Distribution.values()) {
                 System.out.println("#### " + d);
-                for (Map.Entry<String, Percentiles.Estimator> executionHint : ESTIMATORS.entrySet()) {
-                    for (int j = 0; j < QUERY_WARMUP; ++j) {
-                        client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").estimator(executionHint.getValue()).field("v").percentiles(PERCENTILES)).execute().actionGet();
-                    }
-                    long start = System.nanoTime();
-                    for (int j = 0; j < QUERY_COUNT; ++j) {
-                        client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").estimator(executionHint.getValue()).field("v").percentiles(PERCENTILES)).execute().actionGet();
-                    }
-                    System.out.println(executionHint.getKey() + ": " + new TimeValue((System.nanoTime() - start) / QUERY_COUNT, TimeUnit.NANOSECONDS));
+                for (int j = 0; j < QUERY_WARMUP; ++j) {
+                    client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").field("v").percentiles(PERCENTILES)).execute().actionGet();
                 }
+                long start = System.nanoTime();
+                for (int j = 0; j < QUERY_COUNT; ++j) {
+                    client.prepareSearch(d.indexName()).setSearchType(SearchType.COUNT).addAggregation(percentiles("pcts").field("v").percentiles(PERCENTILES)).execute().actionGet();
+                }
+                System.out.println(new TimeValue((System.nanoTime() - start) / QUERY_COUNT, TimeUnit.NANOSECONDS));
             }
         }
     }

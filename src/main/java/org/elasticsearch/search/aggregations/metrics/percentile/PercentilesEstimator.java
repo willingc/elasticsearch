@@ -23,7 +23,6 @@ import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
-import org.elasticsearch.search.aggregations.metrics.percentile.frugal.Frugal;
 import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigest;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 
@@ -103,7 +102,6 @@ public abstract class PercentilesEstimator {
 
         static Result read(StreamInput in) throws IOException {
             switch (in.readByte()) {
-                case Frugal.ID: return Frugal.Flyweight.readNewFrom(in);
                 case TDigest.ID: return TDigest.Flyweight.read(in);
                 default:
                     throw new ElasticsearchIllegalArgumentException("Unknown percentile estimator");

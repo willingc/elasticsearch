@@ -31,10 +31,6 @@ public interface Percentiles extends Aggregation, Iterable<Percentiles.Percentil
 
     public static abstract class Estimator {
 
-        public static Estimator frugal() {
-            return Frugal.instance;
-        }
-
         public static TDigest tDigest() {
             return new TDigest();
         }
@@ -43,19 +39,6 @@ public interface Percentiles extends Aggregation, Iterable<Percentiles.Percentil
 
         protected Estimator(String type) {
             this.type = type;
-        }
-
-        private static class Frugal extends Estimator {
-
-            private final static Frugal instance = new Frugal();
-
-            private Frugal() {
-                super("frugal");
-            }
-
-            @Override
-            void paramsToXContent(XContentBuilder builder) throws IOException {
-            }
         }
 
         public static class TDigest extends Estimator {
