@@ -19,6 +19,7 @@
 package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
 
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.BigArrays;
@@ -153,9 +154,12 @@ public class TDigest extends PercentilesEstimator {
         public Factory(Map<String, Object> settings) {
             double compression = 100;
             if (settings != null) {
-                Double value = (Double) settings.get("compression");
-                if (value != null) {
-                    compression = value;
+                Object compressionObject = settings.get("compression");
+                if (compressionObject != null) {
+                    if (!(compressionObject instanceof Number)) {
+                        throw new ElasticsearchIllegalArgumentException("tdigest compression must be number, got a " + compressionObject.getClass());
+                    }
+                    compression = ((Number) compressionObject).doubleValue();
                 }
             }
             this.compression = compression;
