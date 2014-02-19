@@ -23,10 +23,10 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram.Order;
-import org.elasticsearch.search.aggregations.metrics.percentile.PercentileBuilder;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Estimator.TDigest;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
+import org.elasticsearch.search.aggregations.metrics.percentiles.PercentilesBuilder;
+import org.elasticsearch.search.aggregations.metrics.percentiles.Percentiles;
+import org.elasticsearch.search.aggregations.metrics.percentiles.Percentiles.Estimator.TDigest;
+import org.elasticsearch.search.aggregations.metrics.percentiles.Percentiles.Percentile;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -63,7 +63,7 @@ public class PercentilesTests extends AbstractNumericTests {
         return percentiles;
     }
 
-    private static PercentileBuilder randomEstimator(PercentileBuilder builder) {
+    private static PercentilesBuilder randomEstimator(PercentilesBuilder builder) {
         if (randomBoolean()) {
             TDigest estimator = TDigest.tDigest();
             estimator.compression(randomDouble() * 100);

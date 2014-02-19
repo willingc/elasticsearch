@@ -24,7 +24,7 @@ import org.apache.mahout.math.jet.random.AbstractContinousDistribution;
 import org.apache.mahout.math.jet.random.Gamma;
 import org.apache.mahout.math.jet.random.Normal;
 import org.apache.mahout.math.jet.random.Uniform;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigestState;
+import org.elasticsearch.search.aggregations.metrics.percentiles.tdigest.TDigestState;
 import org.elasticsearch.test.ElasticsearchTestCase;
 import org.junit.Test;
 

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.search.aggregations.metrics.percentile;
+package org.elasticsearch.search.aggregations.metrics.percentiles;
 
 import org.apache.lucene.index.AtomicReaderContext;
 import org.elasticsearch.index.fielddata.DoubleValues;
@@ -34,7 +34,7 @@ import java.util.Arrays;
 /**
  *
  */
-public class PercentileAggregator extends MetricsAggregator.MultiValue {
+public class PercentilesAggregator extends MetricsAggregator.MultiValue {
 
     private final NumericValuesSource valuesSource;
     private DoubleValues values;
@@ -43,8 +43,8 @@ public class PercentileAggregator extends MetricsAggregator.MultiValue {
     private final boolean keyed;
 
 
-    public PercentileAggregator(String name, long estimatedBucketsCount, NumericValuesSource valuesSource, AggregationContext context,
-                                Aggregator parent, PercentilesEstimator estimator, boolean keyed) {
+    public PercentilesAggregator(String name, long estimatedBucketsCount, NumericValuesSource valuesSource, AggregationContext context,
+                                 Aggregator parent, PercentilesEstimator estimator, boolean keyed) {
         super(name, estimatedBucketsCount, context, parent);
         this.valuesSource = valuesSource;
         this.keyed = keyed;
@@ -113,13 +113,13 @@ public class PercentileAggregator extends MetricsAggregator.MultiValue {
 
         @Override
         protected Aggregator createUnmapped(AggregationContext aggregationContext, Aggregator parent) {
-            return new PercentileAggregator(name, 0, null, aggregationContext, parent, estimatorFactory.create(percents, 0, aggregationContext), keyed);
+            return new PercentilesAggregator(name, 0, null, aggregationContext, parent, estimatorFactory.create(percents, 0, aggregationContext), keyed);
         }
 
         @Override
         protected Aggregator create(NumericValuesSource valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
             PercentilesEstimator estimator = estimatorFactory.create(percents, expectedBucketsCount, aggregationContext);
-            return new PercentileAggregator(name, expectedBucketsCount, valuesSource, aggregationContext, parent, estimator, keyed);
+            return new PercentilesAggregator(name, expectedBucketsCount, valuesSource, aggregationContext, parent, estimator, keyed);
         }
     }
 

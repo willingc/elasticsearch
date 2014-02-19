@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.search.aggregations.metrics.percentile;
+package org.elasticsearch.search.aggregations.metrics.percentiles;
 
 import com.google.common.collect.UnmodifiableIterator;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -36,7 +36,7 @@ import java.util.List;
 */
 public class InternalPercentiles extends MetricsAggregation.MultiValue implements Percentiles {
 
-    public final static Type TYPE = new Type("percentile");
+    public final static Type TYPE = new Type("percentiles");
 
     public final static AggregationStreams.Stream STREAM = new AggregationStreams.Stream() {
         @Override

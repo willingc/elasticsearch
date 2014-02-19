@@ -15,7 +15,7 @@
 * limitations under the License.
 */
 
-package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
+package org.elasticsearch.search.aggregations.metrics.percentiles.tdigest;
 
 import com.carrotsearch.hppc.cursors.IntCursor;
 import com.google.common.base.Preconditions;
@@ -23,7 +23,7 @@ import com.google.common.collect.Lists;
 import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.GroupRedBlackTree.SizeAndSum;
+import org.elasticsearch.search.aggregations.metrics.percentiles.tdigest.GroupRedBlackTree.SizeAndSum;
 
 import java.io.IOException;
 import java.util.Iterator;

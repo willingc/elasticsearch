@@ -25,7 +25,7 @@ import com.google.common.collect.Maps;
 import com.google.common.primitives.Ints;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.FixedBitSet;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.RedBlackTree;
+import org.elasticsearch.search.aggregations.metrics.percentiles.tdigest.RedBlackTree;
 import org.elasticsearch.test.ElasticsearchTestCase;
 
 import java.util.Arrays;

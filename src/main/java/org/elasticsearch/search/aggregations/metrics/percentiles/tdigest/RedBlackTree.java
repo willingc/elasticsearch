@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
+package org.elasticsearch.search.aggregations.metrics.percentiles.tdigest;
 
 import com.carrotsearch.hppc.IntArrayDeque;
 import com.carrotsearch.hppc.cursors.IntCursor;

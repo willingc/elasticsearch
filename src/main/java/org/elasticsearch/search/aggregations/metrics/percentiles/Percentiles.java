@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.search.aggregations.metrics.percentile;
+package org.elasticsearch.search.aggregations.metrics.percentiles;
 
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.search.aggregations.Aggregation;

@@ -22,8 +22,8 @@ package org.elasticsearch.search.aggregations.metrics;
 import com.carrotsearch.hppc.cursors.IntCursor;
 import com.google.common.collect.Lists;
 import org.elasticsearch.search.aggregations.metrics.GroupTree.Group;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.GroupRedBlackTree;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.GroupRedBlackTree.SizeAndSum;
+import org.elasticsearch.search.aggregations.metrics.percentiles.tdigest.GroupRedBlackTree;
+import org.elasticsearch.search.aggregations.metrics.percentiles.tdigest.GroupRedBlackTree.SizeAndSum;
 import org.elasticsearch.test.ElasticsearchTestCase;
 
 import java.util.Collections;

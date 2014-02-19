@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
+package org.elasticsearch.search.aggregations.metrics.percentiles.tdigest;
 
 import com.google.common.primitives.Longs;
 import org.apache.lucene.util.ArrayUtil;

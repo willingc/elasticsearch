@@ -33,8 +33,8 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.node.Node;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
-import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
+import org.elasticsearch.search.aggregations.metrics.percentiles.Percentiles;
+import org.elasticsearch.search.aggregations.metrics.percentiles.Percentiles.Percentile;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -48,12 +48,12 @@ import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.node.NodeBuilder.nodeBuilder;
 import static org.elasticsearch.search.aggregations.AggregationBuilders.percentiles;
 
-public class PercentileAggregationSearchBenchmark {
+public class PercentilesAggregationSearchBenchmark {
 
     private static final int AMPLITUDE = 10000;
     private static final int NUM_DOCS = (int) SizeValue.parseSizeValue("1m").singles();
     private static final int BATCH = 100;
-    private static final String CLUSTER_NAME = PercentileAggregationSearchBenchmark.class.getSimpleName();
+    private static final String CLUSTER_NAME = PercentilesAggregationSearchBenchmark.class.getSimpleName();
     private static final double[] PERCENTILES = new double[] { 0, 0.01, 0.1, 1, 10, 25, 50, 75, 90, 99, 99.9, 99.99, 100};
     private static final int QUERY_WARMUP = 10;
     private static final int QUERY_COUNT = 20;

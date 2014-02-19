@@ -33,7 +33,7 @@ import org.elasticsearch.search.aggregations.bucket.terms.TermsBuilder;
 import org.elasticsearch.search.aggregations.metrics.avg.AvgBuilder;
 import org.elasticsearch.search.aggregations.metrics.max.MaxBuilder;
 import org.elasticsearch.search.aggregations.metrics.min.MinBuilder;
-import org.elasticsearch.search.aggregations.metrics.percentile.PercentileBuilder;
+import org.elasticsearch.search.aggregations.metrics.percentiles.PercentilesBuilder;
 import org.elasticsearch.search.aggregations.metrics.stats.StatsBuilder;
 import org.elasticsearch.search.aggregations.metrics.stats.extended.ExtendedStatsBuilder;
 import org.elasticsearch.search.aggregations.metrics.sum.SumBuilder;
@@ -123,7 +123,7 @@ public class AggregationBuilders {
         return new TermsBuilder(name);
     }
 
-    public static PercentileBuilder percentiles(String name) {
-        return new PercentileBuilder(name);
+    public static PercentilesBuilder percentiles(String name) {
+        return new PercentilesBuilder(name);
     }
 }

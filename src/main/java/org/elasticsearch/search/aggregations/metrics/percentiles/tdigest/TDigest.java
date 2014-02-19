@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.search.aggregations.metrics.percentile.tdigest;
+package org.elasticsearch.search.aggregations.metrics.percentiles.tdigest;
 
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchIllegalArgumentException;
@@ -24,7 +24,7 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.ObjectArray;
-import org.elasticsearch.search.aggregations.metrics.percentile.PercentilesEstimator;
+import org.elasticsearch.search.aggregations.metrics.percentiles.PercentilesEstimator;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 
 import java.io.IOException;

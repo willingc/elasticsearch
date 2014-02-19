@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.search.aggregations.metrics.percentile;
+package org.elasticsearch.search.aggregations.metrics.percentiles;
 
 import com.carrotsearch.hppc.DoubleArrayList;
 import org.elasticsearch.common.xcontent.XContentParser;
@@ -25,7 +25,7 @@ import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.search.SearchParseException;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
-import org.elasticsearch.search.aggregations.metrics.percentile.tdigest.TDigest;
+import org.elasticsearch.search.aggregations.metrics.percentiles.tdigest.TDigest;
 import org.elasticsearch.search.aggregations.support.FieldContext;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
 import org.elasticsearch.search.aggregations.support.numeric.NumericValuesSource;
@@ -39,7 +39,7 @@ import java.util.Map;
 /**
  *
  */
-public class PercentileParser implements Aggregator.Parser {
+public class PercentilesParser implements Aggregator.Parser {
 
     private final static double[] DEFAULT_PERCENTS = new double[] { 1, 5, 25, 50, 75, 95, 99 };
 
@@ -139,18 +139,18 @@ public class PercentileParser implements Aggregator.Parser {
         }
 
         if (field == null) {
-            return new PercentileAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
+            return new PercentilesAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
         }
 
         FieldMapper<?> mapper = context.smartNameFieldMapper(field);
         if (mapper == null) {
             config.unmapped(true);
-            return new PercentileAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
+            return new PercentilesAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
         }
 
         IndexFieldData<?> indexFieldData = context.fieldData().getForField(mapper);
         config.fieldContext(new FieldContext(field, indexFieldData));
-        return new PercentileAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
+        return new PercentilesAggregator.Factory(aggregationName, config, percents, estimatorFactory, keyed);
     }
 
     /**

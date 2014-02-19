@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.search.aggregations.metrics.percentile;
+package org.elasticsearch.search.aggregations.metrics.percentiles;
 
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.search.aggregations.metrics.ValuesSourceMetricsAggregationBuilder;
@@ -26,16 +26,16 @@ import java.io.IOException;
 /**
  *
  */
-public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<PercentileBuilder> {
+public class PercentilesBuilder extends ValuesSourceMetricsAggregationBuilder<PercentilesBuilder> {
 
     private double[] percentiles;
     private Percentiles.Estimator estimator;
 
-    public PercentileBuilder(String name) {
+    public PercentilesBuilder(String name) {
         super(name, InternalPercentiles.TYPE.name());
     }
 
-    public PercentileBuilder percentiles(double... percentiles) {
+    public PercentilesBuilder percentiles(double... percentiles) {
         for (int i = 0; i < percentiles.length; i++) {
             if (percentiles[i] < 0 || percentiles[i] > 100) {
                 throw new IllegalArgumentException("the percents in the percentiles aggregation [" +
@@ -46,7 +46,7 @@ public class PercentileBuilder extends ValuesSourceMetricsAggregationBuilder<Per
         return this;
     }
 
-    public PercentileBuilder estimator(Percentiles.Estimator estimator) {
+    public PercentilesBuilder estimator(Percentiles.Estimator estimator) {
         this.estimator = estimator;
         return this;
     }
