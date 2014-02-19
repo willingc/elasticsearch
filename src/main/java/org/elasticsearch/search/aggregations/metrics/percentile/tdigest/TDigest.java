@@ -61,25 +61,25 @@ public class TDigest extends PercentilesEstimator {
     }
 
     @Override
-    public Result flyweight(long bucketOrd) {
+    public PercentilesEstimator.Result result(long bucketOrd) {
         if (bucketOrd >= states.size() || states.get(bucketOrd) == null) {
-            return emptyFlyweight();
+            return emptyResult();
         }
-        return new Flyweight(percents, states.get(bucketOrd));
+        return new Result(percents, states.get(bucketOrd));
     }
 
     @Override
-    public Result emptyFlyweight() {
-        return new Flyweight(percents, new TDigestState(compression));
+    public PercentilesEstimator.Result emptyResult() {
+        return new Result(percents, new TDigestState(compression));
     }
 
-    public static class Flyweight extends Result<TDigest, Flyweight> {
+    public static class Result extends PercentilesEstimator.Result<TDigest, Result> {
 
         private TDigestState state;
 
-        public Flyweight() {} // for serialization
+        public Result() {} // for serialization
 
-        public Flyweight(double[] percents, TDigestState state) {
+        public Result(double[] percents, TDigestState state) {
             super(percents);
             this.state = state;
         }
@@ -99,10 +99,10 @@ public class TDigest extends PercentilesEstimator {
             return new Merger();
         }
 
-        public static Flyweight read(StreamInput in) throws IOException {
-            Flyweight flyweight = new Flyweight();
-            flyweight.readFrom(in);
-            return flyweight;
+        public static Result read(StreamInput in) throws IOException {
+            Result result = new Result();
+            result.readFrom(in);
+            return result;
         }
 
         @Override
@@ -123,24 +123,24 @@ public class TDigest extends PercentilesEstimator {
             TDigestState.write(state, out);
         }
 
-        private class Merger implements Result.Merger<TDigest, Flyweight> {
+        private class Merger implements PercentilesEstimator.Result.Merger<TDigest, Result> {
 
-            private Flyweight merged;
+            private Result merged;
 
             @Override
-            public void add(Flyweight flyweight) {
+            public void add(Result result) {
                 if (merged == null || merged.state == null) {
-                    merged = flyweight;
+                    merged = result;
                     return;
                 }
-                if (flyweight.state == null || flyweight.state.size() == 0) {
+                if (result.state == null || result.state.size() == 0) {
                     return;
                 }
-                merged.state.add(flyweight.state);
+                merged.state.add(result.state);
             }
 
             @Override
-            public Flyweight merge() {
+            public Result merge() {
                 return merged;
             }
         }

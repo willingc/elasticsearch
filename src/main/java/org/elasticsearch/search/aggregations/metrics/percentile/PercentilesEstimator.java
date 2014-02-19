@@ -55,14 +55,14 @@ public abstract class PercentilesEstimator implements Releasable {
      */
     public abstract void offer(double value, long bucketOrd);
 
-    public abstract Result flyweight(long bucketOrd);
+    public abstract Result result(long bucketOrd);
 
-    public abstract Result emptyFlyweight();
+    public abstract Result emptyResult();
 
     /**
      * Responsible for merging multiple estimators into a single one.
      */
-    public abstract static class Result<E extends PercentilesEstimator, F extends Result<E, F>> implements Streamable {
+    public abstract static class Result<E extends PercentilesEstimator, F extends Result> implements Streamable {
 
         protected double[] percents;
 
@@ -84,11 +84,11 @@ public abstract class PercentilesEstimator implements Releasable {
 
         public abstract Merger<E, F> merger(int estimatedMerges);
 
-        public static interface Merger<E extends PercentilesEstimator, F extends Result<E, F>> {
+        public static interface Merger<E extends PercentilesEstimator, F extends Result> {
 
-            public abstract void add(F flyweight);
+            public abstract void add(F result);
 
-            public abstract Result<E, F> merge();
+            public abstract Result merge();
         }
     }
 
@@ -102,7 +102,7 @@ public abstract class PercentilesEstimator implements Releasable {
 
         static Result read(StreamInput in) throws IOException {
             switch (in.readByte()) {
-                case TDigest.ID: return TDigest.Flyweight.read(in);
+                case TDigest.ID: return TDigest.Result.read(in);
                 default:
                     throw new ElasticsearchIllegalArgumentException("Unknown percentile estimator");
             }

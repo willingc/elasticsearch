@@ -76,7 +76,7 @@ public class PercentileAggregator extends MetricsAggregator.MultiValue {
 
     @Override
     public double metric(String name, long owningBucketOrd) {
-        return estimator.flyweight(owningBucketOrd).estimate(Double.parseDouble(name));
+        return estimator.result(owningBucketOrd).estimate(Double.parseDouble(name));
     }
 
     @Override
@@ -84,12 +84,12 @@ public class PercentileAggregator extends MetricsAggregator.MultiValue {
         if (valuesSource == null) {
             return buildEmptyAggregation();
         }
-        return new InternalPercentiles(name, estimator.flyweight(owningBucketOrdinal), keyed);
+        return new InternalPercentiles(name, estimator.result(owningBucketOrdinal), keyed);
     }
 
     @Override
     public InternalAggregation buildEmptyAggregation() {
-        return new InternalPercentiles(name, estimator.emptyFlyweight(), keyed);
+        return new InternalPercentiles(name, estimator.emptyResult(), keyed);
     }
 
     @Override
