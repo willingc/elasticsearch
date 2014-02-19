@@ -1,5 +1,5 @@
 [[search-aggregations-metrics-percentile-aggregation]]
-=== Percentile
+=== Percentiles
 A `multi-value` metrics aggregation that calculates one or more percentiles
 over numeric values extracted from the aggregated documents.  These values
 can be extracted either from specific numeric fields in the documents, or
@@ -35,7 +35,7 @@ Let's look at a range of percentiles representing load time:
 {
     "aggs" : {
         "load_time_outlier" : { 
-            "percentile" : { 
+            "percentiles" : { 
                 "field" : "load_time" <1>
             } 
         }
@@ -80,7 +80,7 @@ must be a value between 0-100 inclusive):
 {
     "aggs" : {
         "load_time_outlier" : { 
-            "percentile" : { 
+            "percentiles" : { 
                 "field" : "load_time",
                 "percents" : [95, 99, 99.9] <1>
             } 
@@ -103,7 +103,7 @@ a script to convert them on-the-fly:
 {
     "aggs" : {
         "load_time_outlier" : { 
-            "percentile" : { 
+            "percentiles" : { 
                 "script" : "doc['load_time'].value / timeUnit", <1>
                 "params" : {
                     "timeUnit" : 1000   <2>
@@ -153,7 +153,7 @@ This balance can be controlled using a `compression` parameter:
 {
     "aggs" : {
         "load_time_outlier" : { 
-            "percentile" : { 
+            "percentiles" : { 
                 "field" : "load_time",
                 "compression" : 200 <1>
             } 
