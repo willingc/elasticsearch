@@ -23,7 +23,9 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram.Order;
+import org.elasticsearch.search.aggregations.metrics.percentile.PercentileBuilder;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles;
+import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Estimator.TDigest;
 import org.elasticsearch.search.aggregations.metrics.percentile.Percentiles.Percentile;
 import org.junit.Test;
 
@@ -61,6 +63,15 @@ public class PercentilesTests extends AbstractNumericTests {
         return percentiles;
     }
 
+    private static PercentileBuilder randomEstimator(PercentileBuilder builder) {
+        if (randomBoolean()) {
+            TDigest estimator = TDigest.tDigest();
+            estimator.compression(randomDouble() * 100);
+            builder.estimator(estimator);
+        }
+        return builder;
+    }
+
     private void assertConsistent(double[] pcts, Percentiles percentiles, long minValue, long maxValue) {
         final List<Percentile> percentileList = Lists.newArrayList(percentiles);
         assertEquals(pcts.length, percentileList.size());
@@ -89,7 +100,7 @@ public class PercentilesTests extends AbstractNumericTests {
         SearchResponse searchResponse = client().prepareSearch("empty_bucket_idx")
                 .setQuery(matchAllQuery())
                 .addAggregation(histogram("histo").field("value").interval(1l).minDocCount(0)
-                        .subAggregation(percentiles("percentiles")
+                        .subAggregation(randomEstimator(percentiles("percentiles"))
                                 .percentiles(10, 15)))
                 .execute().actionGet();
 
@@ -110,7 +121,7 @@ public class PercentilesTests extends AbstractNumericTests {
     public void testUnmapped() throws Exception {
         SearchResponse searchResponse = client().prepareSearch("idx_unmapped")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("value")
                         .percentiles(0, 10, 15, 100))
                 .execute().actionGet();
@@ -131,7 +142,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("value")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -147,7 +158,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx", "idx_unmapped")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("value")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -163,7 +174,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("value").script("_value - 1")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -179,7 +190,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("value").script("_value - dec").param("dec", 1)
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -195,7 +206,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("values")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -211,7 +222,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("values").script("_value - 1")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -227,7 +238,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("values").script("_value * -1")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -243,7 +254,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .field("values").script("_value - dec").param("dec", 1)
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -259,7 +270,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .script("doc['value'].value")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -275,7 +286,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .script("doc['value'].value - dec").param("dec", 1)
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -291,7 +302,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .script("doc['value'].value - dec").param("dec", 1)
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -307,7 +318,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .script("doc['values'].values")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -323,7 +334,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .script("doc['values'].values")
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -339,7 +350,7 @@ public class PercentilesTests extends AbstractNumericTests {
         final double[] pcts = randomPercentiles();
         SearchResponse searchResponse = client().prepareSearch("idx")
                 .setQuery(matchAllQuery())
-                .addAggregation(percentiles("percentiles")
+                .addAggregation(randomEstimator(percentiles("percentiles"))
                         .script("List values = doc['values'].values; double[] res = new double[values.length]; for (int i = 0; i < res.length; i++) { res[i] = values.get(i) - dec; }; return res;").param("dec", 1)
                         .percentiles(pcts))
                 .execute().actionGet();
@@ -357,7 +368,7 @@ public class PercentilesTests extends AbstractNumericTests {
                 .setQuery(matchAllQuery())
                 .addAggregation(
                         histogram("histo").field("value").interval(2l)
-                            .subAggregation(percentiles("percentiles").percentiles(99))
+                            .subAggregation(randomEstimator(percentiles("percentiles").percentiles(99)))
                             .order(Order.aggregation("percentiles", "99", asc)))
                 .execute().actionGet();
 

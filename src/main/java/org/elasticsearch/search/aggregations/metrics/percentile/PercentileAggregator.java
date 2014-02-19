@@ -39,7 +39,7 @@ public class PercentileAggregator extends MetricsAggregator.MultiValue {
     private final NumericValuesSource valuesSource;
     private DoubleValues values;
 
-    private PercentilesEstimator estimator;
+    private final PercentilesEstimator estimator;
     private final boolean keyed;
 
 
